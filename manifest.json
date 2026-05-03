@@ -1,0 +1,27 @@
+{
+  "manifest_version": 3,
+  "name": "AI Smart Translator",
+  "version": "1.0",
+  "description": "Select text to get AI-powered translation, word roots, and etymology.",
+  "permissions": [
+    "storage"
+  ],
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_title": "Settings"
+  },
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content/content.js"],
+      "css": ["content/content.css"]
+    }
+  ],
+  "host_permissions": [
+    "*://*/*"
+  ]
+}
