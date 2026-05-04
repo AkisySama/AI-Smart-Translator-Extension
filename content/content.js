@@ -19,6 +19,12 @@ document.addEventListener('mouseup', (event) => {
     return;
   }
 
+  // If the selected text contains Chinese characters, do nothing
+  const chineseCharCount = (text.match(/[\u4e00-\u9fff\u3400-\u4dbf\uf900-\ufaff]/g) || []).length;
+  if (chineseCharCount / text.length > 0.2) {
+    return;
+  }
+
   // Check if text is a single word (roughly)
   // A word shouldn't have too many spaces.
   const isWord = text.split(/\s+/).length <= 3 && text.length < 30;
@@ -29,12 +35,12 @@ document.addEventListener('mouseup', (event) => {
   // Send message to background script
   chrome.runtime.sendMessage({ action: "translate", text: text, isWord: isWord }, (response) => {
     if (chrome.runtime.lastError) {
-      updatePopup(`<div class="error-msg">Error: ${chrome.runtime.lastError.message}</div>`);
+      updatePopupError(chrome.runtime.lastError.message);
       return;
     }
     
     if (response && response.error) {
-      updatePopup(`<div class="error-msg">Error: ${response.error}</div>`);
+      updatePopupError(response.error);
       return;
     }
 
@@ -85,7 +91,18 @@ function showPopup(x, y, content, isLoading = false) {
 
 function updatePopup(content) {
   if (popupElement) {
-    popupElement.innerHTML = content;
+    popupElement.innerHTML = '';
+    popupElement.appendChild(content);
+  }
+}
+
+function updatePopupError(message) {
+  if (popupElement) {
+    popupElement.innerHTML = '';
+    const div = document.createElement('div');
+    div.className = 'error-msg';
+    div.textContent = 'Error: ' + message;
+    popupElement.appendChild(div);
   }
 }
 
@@ -94,21 +111,36 @@ function extractJson(str) {
   return match ? match[0] : str;
 }
 
+function createItem(label, value) {
+  const div = document.createElement('div');
+  div.className = 'ai-item';
+  const labelSpan = document.createElement('span');
+  labelSpan.className = 'ai-label';
+  labelSpan.textContent = label;
+  const valSpan = document.createElement('span');
+  valSpan.className = 'ai-val';
+  valSpan.textContent = value || '';
+  div.appendChild(labelSpan);
+  div.appendChild(valSpan);
+  return div;
+}
+
 function renderWordPopup(data) {
   try {
     const jsonStr = extractJson(data);
     const parsed = JSON.parse(jsonStr);
-    const html = `
-      <div class="ai-word-card">
-        <div class="ai-item"><span class="ai-label">中文意思：</span><span class="ai-val">${parsed.meaning || parsed.中文意思 || ''}</span></div>
-        <div class="ai-item"><span class="ai-label">词性：</span><span class="ai-val">${parsed.pos || parsed.词性 || ''}</span></div>
-        <div class="ai-item"><span class="ai-label">词根：</span><span class="ai-val">${parsed.root || parsed.词根 || ''}</span></div>
-        <div class="ai-item"><span class="ai-label">词根来历：</span><span class="ai-val">${parsed.origin || parsed.词根来历 || parsed.origin_zh || ''}</span></div>
-      </div>
-    `;
-    updatePopup(html);
+    const card = document.createElement('div');
+    card.className = 'ai-word-card';
+    card.appendChild(createItem('中文意思：', parsed.meaning || parsed.中文意思 || ''));
+    card.appendChild(createItem('词性：', parsed.pos || parsed.词性 || ''));
+    card.appendChild(createItem('词根：', parsed.root || parsed.词根 || ''));
+    card.appendChild(createItem('词根来历：', parsed.origin || parsed.词根来历 || parsed.origin_zh || ''));
+    updatePopup(card);
   } catch (e) {
-    updatePopup(`<div class="ai-error">Failed to parse response.<br><br>${data}</div>`);
+    const errDiv = document.createElement('div');
+    errDiv.className = 'ai-error';
+    errDiv.textContent = 'Failed to parse response: ' + data;
+    updatePopup(errDiv);
   }
 }
 
@@ -116,13 +148,14 @@ function renderSentencePopup(data) {
   try {
     const jsonStr = extractJson(data);
     const parsed = JSON.parse(jsonStr);
-    const html = `
-      <div class="ai-sentence-card">
-        <div class="ai-item"><span class="ai-label">翻译：</span><span class="ai-val">${parsed.translation || parsed.翻译 || ''}</span></div>
-      </div>
-    `;
-    updatePopup(html);
+    const card = document.createElement('div');
+    card.className = 'ai-sentence-card';
+    card.appendChild(createItem('翻译：', parsed.translation || parsed.翻译 || ''));
+    updatePopup(card);
   } catch (e) {
-    updatePopup(`<div class="ai-error">Failed to parse response.<br><br>${data}</div>`);
+    const errDiv = document.createElement('div');
+    errDiv.className = 'ai-error';
+    errDiv.textContent = 'Failed to parse response: ' + data;
+    updatePopup(errDiv);
   }
 }

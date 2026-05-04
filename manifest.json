@@ -1,14 +1,23 @@
 {
   "manifest_version": 3,
-  "name": "AI Smart Translator",
+  "name": "AI 词根翻译助手",
   "version": "1.0",
-  "description": "Select text to get AI-powered translation, word roots, and etymology.",
+  "description": "选中词汇即可展示出词汇的意思、词性、词根以及词根的演变历史（请自备Ai的API）",
   "permissions": [
     "storage"
   ],
+  "icons": {
+    "16": "asset/icons/icon.png",
+    "48": "asset/icons/icon.png",
+    "128": "asset/icons/icon.png"
+  },
   "action": {
     "default_popup": "popup/popup.html",
-    "default_title": "Settings"
+    "default_title": "Settings",
+    "default_icon": {
+      "16": "asset/icons/icon.png",
+      "48": "asset/icons/icon.png"
+    }
   },
   "background": {
     "service_worker": "background.js",
@@ -16,9 +25,15 @@
   },
   "content_scripts": [
     {
-      "matches": ["<all_urls>"],
-      "js": ["content/content.js"],
-      "css": ["content/content.css"]
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "content/content.js"
+      ],
+      "css": [
+        "content/content.css"
+      ]
     }
   ],
   "host_permissions": [
