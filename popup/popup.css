@@ -56,6 +56,13 @@ button:hover {
   background-color: #005bb5;
 }
 
+.privacy-notice {
+  margin-top: 8px;
+  font-size: 11px;
+  color: #d32f2f;
+  text-align: center;
+}
+
 .status {
   margin-top: 12px;
   font-size: 12px;
