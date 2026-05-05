@@ -19,6 +19,11 @@ document.addEventListener('mouseup', (event) => {
     return;
   }
 
+  // If the selected text is purely numeric (including decimals, negatives, percentages, etc.), do nothing
+  if (/^[-+]?[\d,]*\.?\d+%?$/.test(text)) {
+    return;
+  }
+
   // If the selected text contains Chinese characters, do nothing
   const chineseCharCount = (text.match(/[\u4e00-\u9fff\u3400-\u4dbf\uf900-\ufaff]/g) || []).length;
   if (chineseCharCount / text.length > 0.2) {
