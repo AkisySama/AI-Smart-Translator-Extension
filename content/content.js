@@ -30,6 +30,12 @@ document.addEventListener('mouseup', (event) => {
     return;
   }
 
+  // If the selected text is a URL, do nothing
+  if (/^(https?:\/\/|ftp:\/\/|www\.)\S+$/i.test(text) ||
+      /^([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}(\/\S*)?$/i.test(text)) {
+    return;
+  }
+
   // Check if text is a single word (roughly)
   // A word shouldn't have too many spaces.
   const isWord = text.split(/\s+/).length <= 3 && text.length < 30;
