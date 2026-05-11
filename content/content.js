@@ -3,12 +3,12 @@ let popupElement = null;
 document.addEventListener('mouseup', (event) => {
   const selection = window.getSelection();
   const text = selection.toString().trim();
-  
+
   // If clicked inside our popup, do nothing
   if (popupElement && popupElement.contains(event.target)) {
     return;
   }
-  
+
   // Remove existing popup if clicked outside or selection is empty
   if (popupElement) {
     popupElement.remove();
@@ -25,7 +25,7 @@ document.addEventListener('mouseup', (event) => {
   }
 
   // If the selected text contains Chinese characters, do nothing
-  const chineseCharCount = (text.match(/[\u4e00-\u9fff\u3400-\u4dbf\uf900-\ufaff]/g) || []).length;
+  const chineseCharCount = (text.match(/\p{Script=Han}/gu) || []).length;
   if (chineseCharCount / text.length > 0.2) {
     return;
   }
@@ -33,6 +33,12 @@ document.addEventListener('mouseup', (event) => {
   // If the selected text is a URL, do nothing
   if (/^(https?:\/\/|ftp:\/\/|www\.)\S+$/i.test(text) ||
       /^([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}(\/\S*)?$/i.test(text)) {
+    return;
+  }
+
+  // If text doesn't contain enough Latin letters, it's unlikely to be English
+  const latinCharCount = (text.match(/[a-zA-Z]/g) || []).length;
+  if (latinCharCount / text.length < 0.3) {
     return;
   }
 
@@ -49,7 +55,7 @@ document.addEventListener('mouseup', (event) => {
       updatePopupError(chrome.runtime.lastError.message);
       return;
     }
-    
+
     if (response && response.error) {
       updatePopupError(response.error);
       return;
@@ -75,7 +81,7 @@ function showPopup(x, y, content, isLoading = false) {
   popupElement.className = 'ai-translator-popup';
   popupElement.style.left = `${x}px`;
   popupElement.style.top = `${y + 15}px`;
-  
+
   if (isLoading) {
     popupElement.innerHTML = `
       <div class="ai-translator-loading">
@@ -87,7 +93,7 @@ function showPopup(x, y, content, isLoading = false) {
   }
 
   document.body.appendChild(popupElement);
-  
+
   // Adjust position if it goes off screen
   const rect = popupElement.getBoundingClientRect();
   if (rect.right > window.innerWidth) {

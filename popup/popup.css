@@ -63,6 +63,13 @@ button:hover {
   text-align: center;
 }
 
+.lang-notice {
+  margin-top: 4px;
+  font-size: 11px;
+  color: #999;
+  text-align: center;
+}
+
 .status {
   margin-top: 12px;
   font-size: 12px;
