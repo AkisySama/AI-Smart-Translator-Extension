@@ -1,20 +1,26 @@
 let popupElement = null;
+let triggerIconElement = null;
 let selectionAtMouseDown = '';
+
+// Variables to store current selection info for delayed translation lookup
+let currentSelectionText = '';
+let currentIsWord = false;
+let mouseX = 0;
+let mouseY = 0;
 
 document.addEventListener('mouseup', (event) => {
   const selection = window.getSelection();
   const text = selection.toString().trim();
 
-  // If clicked inside our popup, do nothing
-  if (popupElement && popupElement.contains(event.target)) {
+  // If clicked inside our popup or trigger icon, do nothing
+  if ((popupElement && popupElement.contains(event.target)) || 
+      (triggerIconElement && triggerIconElement.contains(event.target))) {
     return;
   }
 
-  // Remove existing popup if clicked outside or selection is empty
-  if (popupElement) {
-    popupElement.remove();
-    popupElement = null;
-  }
+  // Remove existing elements if clicked outside or selection is empty
+  removePopup();
+  removeTriggerIcon();
 
   if (!text) {
     return;
@@ -52,36 +58,95 @@ document.addEventListener('mouseup', (event) => {
   // A word shouldn't have too many spaces.
   const isWord = text.split(/\s+/).length <= 3 && text.length < 30;
 
-  // Create loading popup
-  showPopup(event.pageX, event.pageY, "", true);
+  // Save selection details
+  currentSelectionText = text;
+  currentIsWord = isWord;
+  mouseX = event.pageX;
+  mouseY = event.pageY;
 
-  // Send message to background script
-  chrome.runtime.sendMessage({ action: "translate", text: text, isWord: isWord }, (response) => {
-    if (chrome.runtime.lastError) {
-      updatePopupError(chrome.runtime.lastError.message);
-      return;
-    }
-
-    if (response && response.error) {
-      updatePopupError(response.error);
-      return;
-    }
-
-    if (isWord) {
-      renderWordPopup(response.data);
-    } else {
-      renderSentencePopup(response.data);
-    }
-  });
+  // Show floating trigger icon
+  showTriggerIcon(mouseX, mouseY);
 });
 
 document.addEventListener('mousedown', (event) => {
   selectionAtMouseDown = window.getSelection().toString().trim();
+  
+  // If clicking outside popup, remove it
   if (popupElement && !popupElement.contains(event.target)) {
+    removePopup();
+  }
+  
+  // If clicking outside trigger icon, remove it
+  if (triggerIconElement && !triggerIconElement.contains(event.target)) {
+    removeTriggerIcon();
+  }
+});
+
+function showTriggerIcon(x, y) {
+  triggerIconElement = document.createElement('div');
+  triggerIconElement.className = 'ai-translator-trigger-icon';
+  
+  // Lucide Languages Icon SVG
+  triggerIconElement.innerHTML = `
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="m5 8 6 6"/>
+      <path d="m4 14 6-6"/>
+      <path d="M2 5h12"/>
+      <path d="M7 2h1"/>
+      <path d="m22 22-5-10-5 10"/>
+      <path d="M14 18h6"/>
+    </svg>
+  `;
+
+  // Position slightly offset to bottom right from cursor
+  triggerIconElement.style.left = `${x + 10}px`;
+  triggerIconElement.style.top = `${y + 10}px`;
+
+  triggerIconElement.addEventListener('click', (e) => {
+    e.stopPropagation();
+    
+    // Create loading popup at the saved position
+    showPopup(mouseX, mouseY, "", true);
+    
+    // Remove the trigger icon since translation is initiated
+    removeTriggerIcon();
+
+    // Send message to background script
+    chrome.runtime.sendMessage({ action: "translate", text: currentSelectionText, isWord: currentIsWord }, (response) => {
+      if (chrome.runtime.lastError) {
+        updatePopupError(chrome.runtime.lastError.message);
+        return;
+      }
+
+      if (response && response.error) {
+        updatePopupError(response.error);
+        return;
+      }
+
+      if (currentIsWord) {
+        renderWordPopup(response.data);
+      } else {
+        renderSentencePopup(response.data);
+      }
+    });
+  });
+
+  document.body.appendChild(triggerIconElement);
+}
+
+function removeTriggerIcon() {
+  if (triggerIconElement) {
+    triggerIconElement.remove();
+    triggerIconElement = null;
+  }
+}
+
+function removePopup() {
+  if (popupElement) {
     popupElement.remove();
     popupElement = null;
   }
-});
+}
 
 function showPopup(x, y, content, isLoading = false) {
   popupElement = document.createElement('div');

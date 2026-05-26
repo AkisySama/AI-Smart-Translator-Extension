@@ -57,3 +57,55 @@
   font-size: 13px;
   word-wrap: break-word;
 }
+
+/* Floating Trigger Icon Styles */
+.ai-translator-trigger-icon {
+  position: absolute;
+  z-index: 2147483647;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  background: rgba(255, 255, 255, 0.9);
+  border: 1.5px solid rgba(0, 122, 255, 0.5);
+  color: #007aff;
+  border-radius: 50%;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12), 0 2px 4px rgba(0, 122, 255, 0.1);
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  user-select: none;
+  animation: ai-pop-in 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.ai-translator-trigger-icon:hover {
+  background: #007aff;
+  color: #ffffff;
+  border-color: #007aff;
+  transform: scale(1.15) translateY(-2px);
+  box-shadow: 0 6px 16px rgba(0, 122, 255, 0.35);
+}
+
+.ai-translator-trigger-icon:active {
+  transform: scale(0.95) translateY(0);
+}
+
+.ai-translator-trigger-icon svg {
+  width: 16px;
+  height: 16px;
+  pointer-events: none;
+}
+
+@keyframes ai-pop-in {
+  from {
+    opacity: 0;
+    transform: scale(0.5) translateY(5px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
