@@ -1,4 +1,5 @@
 let popupElement = null;
+let selectionAtMouseDown = '';
 
 document.addEventListener('mouseup', (event) => {
   const selection = window.getSelection();
@@ -16,6 +17,11 @@ document.addEventListener('mouseup', (event) => {
   }
 
   if (!text) {
+    return;
+  }
+
+  // If selection hasn't changed since mousedown, this click didn't create a new selection — don't show popup
+  if (text === selectionAtMouseDown) {
     return;
   }
 
@@ -70,6 +76,7 @@ document.addEventListener('mouseup', (event) => {
 });
 
 document.addEventListener('mousedown', (event) => {
+  selectionAtMouseDown = window.getSelection().toString().trim();
   if (popupElement && !popupElement.contains(event.target)) {
     popupElement.remove();
     popupElement = null;
