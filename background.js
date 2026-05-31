@@ -1,5 +1,7 @@
 import { getAiResponse } from './lib/ai-providers.js';
 
+const translationCache = new Map();
+
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === 'translate') {
     handleTranslation(request.text, request.isWord)
@@ -10,6 +12,12 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 });
 
 async function handleTranslation(text, isWord) {
+  const cacheKey = `${text}::${isWord}`;
+  const cached = translationCache.get(cacheKey);
+  if (cached !== undefined) {
+    return cached;
+  }
+
   const resultObj = await chrome.storage.local.get(['apiUrl', 'apiKey', 'modelName']);
   
   const apiKey = resultObj.apiKey;
@@ -39,5 +47,6 @@ Output strictly valid JSON only. Do not wrap in markdown or add any conversation
   }
 
   const result = await getAiResponse(apiUrl, apiKey, modelName, systemPrompt, text);
+  translationCache.set(cacheKey, result);
   return result;
 }
