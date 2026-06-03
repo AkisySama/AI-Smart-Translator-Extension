@@ -15,6 +15,9 @@ Thumbs.db
 *.njsproj
 *.sln
 
+# Design docs (local only)
+docs/
+
 # Node (if added later)
 node_modules/
 npm-debug.log

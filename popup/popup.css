@@ -38,6 +38,37 @@ input[type="password"] {
   border: 1px solid #ccc;
   border-radius: 4px;
   font-size: 14px;
+  background-color: #fff;
+}
+
+/* --- Provider button group --- */
+.provider-btns {
+  display: flex;
+  gap: 6px;
+}
+
+.provider-btn {
+  flex: 1;
+  padding: 6px 0;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+  background-color: #fff;
+  color: #333;
+  transition: all 0.15s;
+  margin-top: 0;
+}
+
+.provider-btn:hover {
+  border-color: #007aff;
+  color: #007aff;
+}
+
+.provider-btn.active {
+  background-color: #007aff;
+  color: #fff;
+  border-color: #007aff;
 }
 
 button {

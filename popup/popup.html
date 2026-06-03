@@ -1,37 +1,70 @@
-<!DOCTYPE html>
+<!doctype html>
 <html>
+    <head>
+        <meta charset="UTF-8" />
+        <title>AI Translator Settings</title>
+        <link rel="stylesheet" href="popup.css" />
+    </head>
 
-<head>
-  <meta charset="UTF-8">
-  <title>AI Translator Settings</title>
-  <link rel="stylesheet" href="popup.css">
-</head>
+    <body>
+        <div class="container">
+            <h2>AI词根翻译助手设置</h2>
 
-<body>
-  <div class="container">
-    <h2>AI词根翻译助手设置</h2>
+            <div class="form-group">
+                <label>API 厂商</label>
+                <div class="provider-btns" id="providerBtns">
+                    <button
+                        type="button"
+                        class="provider-btn"
+                        data-provider="custom"
+                    >
+                        手动输入
+                    </button>
+                    <button
+                        type="button"
+                        class="provider-btn"
+                        data-provider="openai"
+                    >
+                        OpenAI
+                    </button>
+                    <button
+                        type="button"
+                        class="provider-btn"
+                        data-provider="deepseek"
+                    >
+                        DeepSeek
+                    </button>
+                </div>
+            </div>
 
-    <div class="form-group">
-      <label for="apiUrl">API URL (OpenAI compatible format)</label>
-      <input type="text" id="apiUrl" placeholder="e.g. https://api.openai.com/v1/chat/completions">
-    </div>
+            <div class="form-group">
+                <label for="apiUrl">API URL</label>
+                <input
+                    type="text"
+                    id="apiUrl"
+                    placeholder="e.g. https://api.openai.com/v1/chat/completions"
+                />
+            </div>
 
-    <div class="form-group">
-      <label for="apiKey">API Key</label>
-      <input type="password" id="apiKey" placeholder="sk-...">
-    </div>
+            <div class="form-group">
+                <label for="apiKey">API Key</label>
+                <input type="password" id="apiKey" placeholder="sk-..." />
+            </div>
 
-    <div class="form-group">
-      <label for="modelName">模型名称</label>
-      <input type="text" id="modelName" placeholder="e.g. gpt-3.5-turbo">
-    </div>
+            <div class="form-group">
+                <label for="modelName">模型名称</label>
+                <input
+                    type="text"
+                    id="modelName"
+                    placeholder="e.g. gpt-5.4-mini"
+                />
+            </div>
 
-    <button id="saveBtn">保存设置</button>
-    <p class="privacy-notice">本插件不会收集你的任何信息，请放心使用</p>
-    <p class="lang-notice">（本插件目前仅支持英文）</p>
-    <div id="status" class="status"></div>
-  </div>
-  <script src="popup.js"></script>
-</body>
-
+            <button id="saveBtn">保存设置</button>
+            <p class="privacy-notice">本插件不会收集你的任何信息，请放心使用</p>
+            <p class="lang-notice">（本插件目前仅支持英文）</p>
+            <div id="status" class="status"></div>
+        </div>
+        <script src="popup.js"></script>
+    </body>
 </html>
