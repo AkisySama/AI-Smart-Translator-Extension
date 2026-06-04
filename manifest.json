@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "AI 词根翻译助手",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "选中词汇即可展示出词汇的意思、词性、词根以及词根的演变历史（请自备Ai的API）",
   "permissions": [
     "storage"

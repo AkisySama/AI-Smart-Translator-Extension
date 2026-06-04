@@ -200,6 +200,41 @@ function extractJson(str) {
   return match ? match[0] : str;
 }
 
+function speakWord(word) {
+  if (!window.speechSynthesis) return;
+
+  speechSynthesis.cancel();
+
+  const utterance = new SpeechSynthesisUtterance(word);
+  utterance.lang = 'en-US';
+  utterance.rate = 0.9;
+
+  // Prefer an English voice if available
+  const voices = speechSynthesis.getVoices();
+  const enVoice = voices.find(v => v.lang.startsWith('en'));
+  if (enVoice) utterance.voice = enVoice;
+
+  speechSynthesis.speak(utterance);
+}
+
+function createSpeakerButton(word) {
+  const btn = document.createElement('button');
+  btn.className = 'ai-speaker-btn';
+  btn.innerHTML = `
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+      <path d="M15.54 8.46a5 5 0 0 1 0 7.07"/>
+      <path d="M19.07 4.93a10 10 0 0 1 0 14.14"/>
+    </svg>
+  `;
+  btn.title = '朗读发音';
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    speakWord(word);
+  });
+  return btn;
+}
+
 function createItem(label, value) {
   const div = document.createElement('div');
   div.className = 'ai-item';
@@ -220,6 +255,17 @@ function renderWordPopup(data) {
     const parsed = JSON.parse(jsonStr);
     const card = document.createElement('div');
     card.className = 'ai-word-card';
+
+    // Word header with speaker button
+    const wordHeader = document.createElement('div');
+    wordHeader.className = 'ai-word-header';
+    const wordSpan = document.createElement('span');
+    wordSpan.className = 'ai-word-text';
+    wordSpan.textContent = currentSelectionText;
+    wordHeader.appendChild(wordSpan);
+    wordHeader.appendChild(createSpeakerButton(currentSelectionText));
+    card.appendChild(wordHeader);
+
     card.appendChild(createItem('中文意思：', parsed.meaning || parsed.中文意思 || ''));
     card.appendChild(createItem('词性：', parsed.pos || parsed.词性 || ''));
     card.appendChild(createItem('词根：', parsed.root || parsed.词根 || ''));
