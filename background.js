@@ -25,7 +25,7 @@ async function handleTranslation(text, isWord) {
   const modelName = resultObj.modelName;
 
   if (!apiKey) {
-    throw new Error('Please click the extension icon to set your API Key first.');
+    throw new Error('请先点击扩展图标，填写并保存 API Key。');
   }
 
   let systemPrompt = "";
@@ -46,7 +46,131 @@ Required JSON key:
 Output strictly valid JSON only. Do not wrap in markdown or add any conversational text.`;
   }
 
-  const result = await getAiResponse(apiUrl, apiKey, modelName, systemPrompt, text);
+  const rawResult = await getAiResponse(apiUrl, apiKey, modelName, systemPrompt, text);
+  const result = normalizeAiResponse(rawResult, isWord);
   translationCache.set(cacheKey, result);
   return result;
+}
+
+function normalizeAiResponse(rawResponse, isWord) {
+  const parsed = parseJsonObject(rawResponse);
+  return isWord ? normalizeWordResponse(parsed) : normalizeSentenceResponse(parsed);
+}
+
+function parseJsonObject(rawResponse) {
+  if (rawResponse && typeof rawResponse === 'object' && !Array.isArray(rawResponse)) {
+    return rawResponse;
+  }
+
+  if (typeof rawResponse !== 'string') {
+    throw new Error('AI 返回的格式不正确，请重试。');
+  }
+
+  const trimmed = rawResponse.trim();
+  const candidates = [
+    trimmed,
+    stripMarkdownFence(trimmed),
+    extractFirstJsonObject(trimmed),
+  ].filter(Boolean);
+
+  for (const candidate of candidates) {
+    try {
+      const parsed = JSON.parse(candidate);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        return parsed;
+      }
+    } catch (e) {
+      // Try the next candidate.
+    }
+  }
+
+  throw new Error('AI 没有返回可解析的 JSON，请重试或换一个模型。');
+}
+
+function stripMarkdownFence(text) {
+  const match = text.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+  return match ? match[1].trim() : '';
+}
+
+function extractFirstJsonObject(text) {
+  let start = -1;
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+
+  for (let i = 0; i < text.length; i += 1) {
+    const char = text[i];
+
+    if (start === -1) {
+      if (char === '{') {
+        start = i;
+        depth = 1;
+      }
+      continue;
+    }
+
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (char === '\\') {
+        escaped = true;
+      } else if (char === '"') {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (char === '"') {
+      inString = true;
+    } else if (char === '{') {
+      depth += 1;
+    } else if (char === '}') {
+      depth -= 1;
+      if (depth === 0) {
+        return text.slice(start, i + 1);
+      }
+    }
+  }
+
+  return '';
+}
+
+function normalizeWordResponse(parsed) {
+  const normalized = {
+    type: 'word',
+    meaning: getFirstString(parsed, ['meaning', '中文意思', '释义', 'definition']),
+    pos: getFirstString(parsed, ['pos', 'partOfSpeech', 'part_of_speech', '词性']),
+    root: getFirstString(parsed, ['root', '词根']),
+    origin: getFirstString(parsed, ['origin', 'origin_zh', '词根来历', '词源', '历史演变']),
+  };
+
+  validateRequiredFields(normalized, ['meaning', 'pos', 'root', 'origin']);
+  return normalized;
+}
+
+function normalizeSentenceResponse(parsed) {
+  const normalized = {
+    type: 'sentence',
+    translation: getFirstString(parsed, ['translation', '翻译', '中文翻译']),
+  };
+
+  validateRequiredFields(normalized, ['translation']);
+  return normalized;
+}
+
+function getFirstString(source, keys) {
+  for (const key of keys) {
+    const value = source[key];
+    if (typeof value === 'string' && value.trim()) {
+      return value.trim();
+    }
+  }
+  return '';
+}
+
+function validateRequiredFields(data, fields) {
+  const missingFields = fields.filter(field => !data[field]);
+  if (missingFields.length > 0) {
+    throw new Error(`AI 返回内容不完整，缺少字段：${missingFields.join('、')}。请重试。`);
+  }
 }

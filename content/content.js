@@ -104,6 +104,8 @@ function showTriggerIcon(x, y) {
 
   triggerIconElement.addEventListener('click', (e) => {
     e.stopPropagation();
+    const selectedText = currentSelectionText;
+    const isWord = currentIsWord;
     
     // Create loading popup at the saved position
     showPopup(mouseX, mouseY, "", true);
@@ -112,7 +114,7 @@ function showTriggerIcon(x, y) {
     removeTriggerIcon();
 
     // Send message to background script
-    chrome.runtime.sendMessage({ action: "translate", text: currentSelectionText, isWord: currentIsWord }, (response) => {
+    chrome.runtime.sendMessage({ action: "translate", text: selectedText, isWord }, (response) => {
       if (chrome.runtime.lastError) {
         updatePopupError(chrome.runtime.lastError.message);
         return;
@@ -123,10 +125,17 @@ function showTriggerIcon(x, y) {
         return;
       }
 
-      if (currentIsWord) {
-        renderWordPopup(response.data);
-      } else {
+      if (!response || !response.data || typeof response.data !== 'object') {
+        updatePopupError('AI 返回的数据格式异常，请重试。');
+        return;
+      }
+
+      if (response.data.type === 'word') {
+        renderWordPopup(response.data, selectedText);
+      } else if (response.data.type === 'sentence') {
         renderSentencePopup(response.data);
+      } else {
+        updatePopupError('AI 返回了未知的结果类型，请重试。');
       }
     });
   });
@@ -189,15 +198,10 @@ function updatePopupError(message) {
   if (popupElement) {
     popupElement.innerHTML = '';
     const div = document.createElement('div');
-    div.className = 'error-msg';
-    div.textContent = 'Error: ' + message;
+    div.className = 'ai-error';
+    div.textContent = message;
     popupElement.appendChild(div);
   }
-}
-
-function extractJson(str) {
-  const match = str.match(/\{[\s\S]*\}/);
-  return match ? match[0] : str;
 }
 
 function speakWord(word) {
@@ -249,48 +253,30 @@ function createItem(label, value) {
   return div;
 }
 
-function renderWordPopup(data) {
-  try {
-    const jsonStr = extractJson(data);
-    const parsed = JSON.parse(jsonStr);
-    const card = document.createElement('div');
-    card.className = 'ai-word-card';
+function renderWordPopup(data, word) {
+  const card = document.createElement('div');
+  card.className = 'ai-word-card';
 
-    // Word header with speaker button
-    const wordHeader = document.createElement('div');
-    wordHeader.className = 'ai-word-header';
-    const wordSpan = document.createElement('span');
-    wordSpan.className = 'ai-word-text';
-    wordSpan.textContent = currentSelectionText;
-    wordHeader.appendChild(wordSpan);
-    wordHeader.appendChild(createSpeakerButton(currentSelectionText));
-    card.appendChild(wordHeader);
+  // Word header with speaker button
+  const wordHeader = document.createElement('div');
+  wordHeader.className = 'ai-word-header';
+  const wordSpan = document.createElement('span');
+  wordSpan.className = 'ai-word-text';
+  wordSpan.textContent = word;
+  wordHeader.appendChild(wordSpan);
+  wordHeader.appendChild(createSpeakerButton(word));
+  card.appendChild(wordHeader);
 
-    card.appendChild(createItem('中文意思：', parsed.meaning || parsed.中文意思 || ''));
-    card.appendChild(createItem('词性：', parsed.pos || parsed.词性 || ''));
-    card.appendChild(createItem('词根：', parsed.root || parsed.词根 || ''));
-    card.appendChild(createItem('词根来历：', parsed.origin || parsed.词根来历 || parsed.origin_zh || ''));
-    updatePopup(card);
-  } catch (e) {
-    const errDiv = document.createElement('div');
-    errDiv.className = 'ai-error';
-    errDiv.textContent = 'Failed to parse response: ' + data;
-    updatePopup(errDiv);
-  }
+  card.appendChild(createItem('中文意思：', data.meaning));
+  card.appendChild(createItem('词性：', data.pos));
+  card.appendChild(createItem('词根：', data.root));
+  card.appendChild(createItem('词根来历：', data.origin));
+  updatePopup(card);
 }
 
 function renderSentencePopup(data) {
-  try {
-    const jsonStr = extractJson(data);
-    const parsed = JSON.parse(jsonStr);
-    const card = document.createElement('div');
-    card.className = 'ai-sentence-card';
-    card.appendChild(createItem('翻译：', parsed.translation || parsed.翻译 || ''));
-    updatePopup(card);
-  } catch (e) {
-    const errDiv = document.createElement('div');
-    errDiv.className = 'ai-error';
-    errDiv.textContent = 'Failed to parse response: ' + data;
-    updatePopup(errDiv);
-  }
+  const card = document.createElement('div');
+  card.className = 'ai-sentence-card';
+  card.appendChild(createItem('翻译：', data.translation));
+  updatePopup(card);
 }
