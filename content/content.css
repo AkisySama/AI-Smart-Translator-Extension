@@ -14,6 +14,49 @@
   line-height: 1.5;
 }
 
+@property --ai-rainbow-angle {
+  syntax: "<angle>";
+  initial-value: 0deg;
+  inherits: false;
+}
+
+.ai-translator-popup--loading {
+  border-color: transparent;
+}
+
+.ai-translator-popup--loading::before {
+  content: "";
+  position: absolute;
+  inset: -3px;
+  border-radius: 10px;
+  padding: 3px;
+  background: conic-gradient(
+    from var(--ai-rainbow-angle),
+    #ff3b30,
+    #ff9500,
+    #ffcc00,
+    #34c759,
+    #00c7be,
+    #007aff,
+    #af52de,
+    #ff2d55,
+    #ff3b30
+  );
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+  animation: ai-rainbow-marquee 1.2s linear infinite;
+}
+
+@keyframes ai-rainbow-marquee {
+  to {
+    --ai-rainbow-angle: 360deg;
+  }
+}
+
 .ai-translator-loading {
   display: flex;
   align-items: center;
@@ -154,4 +197,3 @@
     transform: scale(1) translateY(0);
   }
 }
-

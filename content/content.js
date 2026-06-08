@@ -160,6 +160,9 @@ function removePopup() {
 function showPopup(x, y, content, isLoading = false) {
   popupElement = document.createElement('div');
   popupElement.className = 'ai-translator-popup';
+  if (isLoading) {
+    popupElement.classList.add('ai-translator-popup--loading');
+  }
   popupElement.style.left = `${x}px`;
   popupElement.style.top = `${y + 15}px`;
 
@@ -189,6 +192,7 @@ function showPopup(x, y, content, isLoading = false) {
 
 function updatePopup(content) {
   if (popupElement) {
+    popupElement.classList.remove('ai-translator-popup--loading');
     popupElement.innerHTML = '';
     popupElement.appendChild(content);
   }
@@ -196,6 +200,7 @@ function updatePopup(content) {
 
 function updatePopupError(message) {
   if (popupElement) {
+    popupElement.classList.remove('ai-translator-popup--loading');
     popupElement.innerHTML = '';
     const div = document.createElement('div');
     div.className = 'ai-error';
