@@ -169,7 +169,6 @@ function showPopup(x, y, content, isLoading = false) {
   if (isLoading) {
     popupElement.innerHTML = `
       <div class="ai-translator-loading">
-        <div class="spinner"></div>
         <span>AI is thinking...</span>
       </div>`;
   } else {

@@ -18,3 +18,9 @@ test('loading marquee draws an animated rainbow border around the popup', () => 
   assert.match(contentCss, /animation:\s*ai-rainbow-marquee/);
   assert.match(contentCss, /@keyframes ai-rainbow-marquee/);
 });
+
+test('loading popup does not render the old circular spinner', () => {
+  assert.doesNotMatch(contentJs, /class="spinner"/);
+  assert.doesNotMatch(contentCss, /\.ai-translator-loading \.spinner/);
+  assert.doesNotMatch(contentCss, /@keyframes ai-spin/);
+});
