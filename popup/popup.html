@@ -8,62 +8,71 @@
 
     <body>
         <div class="container">
-            <h2>AI词根翻译助手设置</h2>
-
-            <div class="form-group">
-                <label>API 厂商</label>
-                <div class="provider-btns" id="providerBtns">
-                    <button
-                        type="button"
-                        class="provider-btn"
-                        data-provider="custom"
-                    >
-                        手动输入
-                    </button>
-                    <button
-                        type="button"
-                        class="provider-btn"
-                        data-provider="openai"
-                    >
-                        OpenAI
-                    </button>
-                    <button
-                        type="button"
-                        class="provider-btn"
-                        data-provider="deepseek"
-                    >
-                        DeepSeek
-                    </button>
+            <header class="settings-header">
+                <div>
+                    <h1 class="app-title">AI 词根翻译助手</h1>
+                    <p class="app-subtitle">配置你的 AI 接口</p>
                 </div>
-            </div>
+            </header>
 
-            <div class="form-group">
-                <label for="apiUrl">API URL</label>
-                <input
-                    type="text"
-                    id="apiUrl"
-                    placeholder="e.g. https://api.openai.com/v1/chat/completions"
-                />
-            </div>
+            <main class="settings-panel">
+                <div class="form-group">
+                    <label>API 厂商</label>
+                    <div class="provider-btns" id="providerBtns">
+                        <button
+                            type="button"
+                            class="provider-btn"
+                            data-provider="custom"
+                        >
+                            手动输入
+                        </button>
+                        <button
+                            type="button"
+                            class="provider-btn"
+                            data-provider="openai"
+                        >
+                            OpenAI
+                        </button>
+                        <button
+                            type="button"
+                            class="provider-btn"
+                            data-provider="deepseek"
+                        >
+                            DeepSeek
+                        </button>
+                    </div>
+                </div>
 
-            <div class="form-group">
-                <label for="apiKey">API Key</label>
-                <input type="password" id="apiKey" placeholder="sk-..." />
-            </div>
+                <div class="form-group">
+                    <label for="apiUrl">API URL</label>
+                    <input
+                        type="text"
+                        id="apiUrl"
+                        placeholder="e.g. https://api.openai.com/v1/chat/completions"
+                    />
+                </div>
 
-            <div class="form-group">
-                <label for="modelName">模型名称</label>
-                <input
-                    type="text"
-                    id="modelName"
-                    placeholder="e.g. gpt-5.4-mini"
-                />
-            </div>
+                <div class="form-group">
+                    <label for="apiKey">API Key</label>
+                    <input type="password" id="apiKey" placeholder="sk-..." />
+                </div>
 
-            <button id="saveBtn">保存设置</button>
-            <p class="privacy-notice">本插件不会收集你的任何信息，请放心使用</p>
-            <p class="lang-notice">（本插件目前仅支持英文）</p>
-            <div id="status" class="status"></div>
+                <div class="form-group">
+                    <label for="modelName">模型名称</label>
+                    <input
+                        type="text"
+                        id="modelName"
+                        placeholder="e.g. gpt-5.4-mini"
+                    />
+                </div>
+
+                <button id="saveBtn" class="save-btn">保存设置</button>
+                <div id="status" class="status"></div>
+            </main>
+
+            <footer class="settings-footer">
+                本插件仅在本地保存配置，目前支持英文内容分析
+            </footer>
         </div>
         <script src="popup.js"></script>
     </body>

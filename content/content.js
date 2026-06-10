@@ -261,7 +261,6 @@ function renderWordPopup(data, word) {
   const card = document.createElement('div');
   card.className = 'ai-word-card';
 
-  // Word header with speaker button
   const wordHeader = document.createElement('div');
   wordHeader.className = 'ai-word-header';
   const wordSpan = document.createElement('span');
@@ -271,10 +270,58 @@ function renderWordPopup(data, word) {
   wordHeader.appendChild(createSpeakerButton(word));
   card.appendChild(wordHeader);
 
-  card.appendChild(createItem('中文意思：', data.meaning));
-  card.appendChild(createItem('词性：', data.pos));
-  card.appendChild(createItem('词根：', data.root));
-  card.appendChild(createItem('词根来历：', data.origin));
+  const meaning = document.createElement('div');
+  meaning.className = 'ai-word-meaning';
+  meaning.textContent = data.meaning || '';
+  card.appendChild(meaning);
+
+  if (data.pos) {
+    const meta = document.createElement('div');
+    meta.className = 'ai-word-meta';
+    const posTag = document.createElement('span');
+    posTag.className = 'ai-pos-tag';
+    posTag.textContent = data.pos;
+    meta.appendChild(posTag);
+    card.appendChild(meta);
+  }
+
+  const components = Array.isArray(data.components) && data.components.length > 0
+    ? data.components
+    : [{ text: data.root || '', type: '词根', meaning: '' }];
+
+  const componentBlock = document.createElement('div');
+  componentBlock.className = 'ai-component-block';
+  const componentHeading = document.createElement('div');
+  componentHeading.className = 'ai-component-heading';
+  const rootLabel = document.createElement('span');
+  rootLabel.className = 'ai-component-label';
+  rootLabel.textContent = '构词';
+  const componentList = document.createElement('div');
+  componentList.className = 'ai-component-list';
+
+  components
+    .filter(component => component && component.text)
+    .forEach((component) => {
+      const chip = document.createElement('span');
+      chip.className = 'ai-component-chip';
+      chip.textContent = component.text;
+      const details = [component.type, component.meaning].filter(Boolean).join('：');
+      if (details) {
+        chip.title = details;
+      }
+      componentList.appendChild(chip);
+    });
+
+  componentHeading.appendChild(rootLabel);
+  componentHeading.appendChild(componentList);
+  componentBlock.appendChild(componentHeading);
+
+  const componentOrigin = document.createElement('div');
+  componentOrigin.className = 'ai-component-origin';
+  componentOrigin.textContent = data.origin || '';
+  componentBlock.appendChild(componentOrigin);
+  card.appendChild(componentBlock);
+
   updatePopup(card);
 }
 

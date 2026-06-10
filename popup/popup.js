@@ -123,9 +123,11 @@ document.addEventListener("DOMContentLoaded", () => {
         provider: currentProvider,
       },
       () => {
-        statusDiv.textContent = "保存成功!";
+        statusDiv.textContent = "设置已保存";
+        statusDiv.classList.add("visible");
         setTimeout(() => {
           statusDiv.textContent = "";
+          statusDiv.classList.remove("visible");
         }, 2000);
       },
     );

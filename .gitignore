@@ -17,6 +17,7 @@ Thumbs.db
 
 # Design docs (local only)
 docs/
+.superpowers/
 
 # Node (if added later)
 node_modules/
