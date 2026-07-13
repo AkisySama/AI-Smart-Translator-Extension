@@ -9,11 +9,24 @@ const contentJs = fs.readFileSync(path.join(rootDir, 'content', 'content.js'), '
 const contentCss = fs.readFileSync(path.join(rootDir, 'content', 'content.css'), 'utf8');
 
 test('word prompt asks AI for a composition components array', () => {
-  assert.match(backgroundJs, /"components": 构词成分数组/);
-  assert.match(backgroundJs, /"text"/);
-  assert.match(backgroundJs, /"type"/);
-  assert.match(backgroundJs, /"meaning"/);
-  assert.match(backgroundJs, /前缀、词根、后缀、词干/);
+  assert.match(backgroundJs, /"field":"components"/);
+  assert.match(backgroundJs, /"text":"构词成分或原形"/);
+  assert.match(backgroundJs, /"type":"前缀\/词根\/后缀\/词干"/);
+  assert.match(backgroundJs, /"meaning":"不超过12字的中文含义"/);
+  assert.match(backgroundJs, /构词成分最多4个/);
+});
+
+test('word prompt emits important fields before the composition explanation', () => {
+  const meaningIndex = backgroundJs.indexOf('{"field":"meaning"');
+  const posIndex = backgroundJs.indexOf('{"field":"pos"');
+  const componentsIndex = backgroundJs.indexOf('{"field":"components"');
+  const compositionIndex = backgroundJs.indexOf('{"field":"composition"');
+
+  assert.ok(meaningIndex < posIndex);
+  assert.ok(posIndex < componentsIndex);
+  assert.ok(componentsIndex < compositionIndex);
+  assert.match(backgroundJs, /不超过70字/);
+  assert.match(backgroundJs, /只解释构词关系，不展开历史演变/);
 });
 
 test('background normalizes components with legacy root fallback', () => {

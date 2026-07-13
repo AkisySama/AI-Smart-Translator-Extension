@@ -45,7 +45,31 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
 });
 
-async function handleTranslation(text, isWord) {
+chrome.runtime.onConnect.addListener((port) => {
+  if (port.name !== "translation-stream") return;
+
+  port.onMessage.addListener((request) => {
+    if (request.action !== "translate") return;
+
+    handleTranslation(request.text, request.isWord, (data) => {
+      postPortMessage(port, { type: "progress", data });
+    })
+      .then((data) => postPortMessage(port, { type: "result", data }))
+      .catch((error) =>
+        postPortMessage(port, { type: "error", error: error.message }),
+      );
+  });
+});
+
+function postPortMessage(port, message) {
+  try {
+    port.postMessage(message);
+  } catch (e) {
+    // The page may have closed or started a newer translation.
+  }
+}
+
+async function handleTranslation(text, isWord, onProgress) {
   const cacheKey = `${text}::${isWord}`;
   const cached = translationCache.get(cacheKey);
   if (cached !== undefined) {
@@ -68,32 +92,102 @@ async function handleTranslation(text, isWord) {
 
   let systemPrompt = "";
   if (isWord) {
-    systemPrompt = `You are a helpful dictionary assistant. Analyze the given English word and output strictly in JSON format.
-Required JSON keys:
-"meaning": Chinese meaning of the word.
-"pos": 必须使用中文词性名称。不要返回英文词性、英文缩写或英文标签。例如：名词、动词、形容词、副词、介词、连词、代词。
-"components": 构词成分数组。每个成分必须包含 "text", "type", "meaning" 三个字段。"type" 使用中文：前缀、词根、后缀、词干。保留必要连字符，例如 un-, -able, nov-。
-"origin": 详细阐述该单词的历史演变（200字以内），说明从构词成分源头到现代用法的语义变化过程，使用中文输出。
-
-Output strictly valid JSON only. Do not wrap in markdown or add any conversational text.`;
+    systemPrompt = `分析给定英文词汇，帮助英语基础较好的用户快速建立构词记忆。构词成分最多4个，按词中出现顺序排列；包含派生或屈折后缀，必要时保留拉丁语或希腊语原形，不要强行拆解无法可靠拆解的词。严格按以下顺序输出四行 NDJSON，每行一个完整 JSON 对象，不要输出 Markdown 或其他文字：
+{"field":"meaning","value":"简明中文释义，不超过20字"}
+{"field":"pos","value":"中文词性，如名词、动词、形容词"}
+{"field":"components","value":[{"text":"构词成分或原形","type":"前缀/词根/后缀/词干","meaning":"不超过12字的中文含义"}]}
+{"field":"composition","value":"用一句中文说明各部分怎样组合、各自作用及整体含义，不超过70字"}
+组合说明只解释构词关系，不展开历史演变。例如：devorare 由 de-（向下/完全）加 vorare（吞食）构成，-ing 为英语现在分词后缀，表示正在进行的动作。`;
   } else {
-    systemPrompt = `You are a helpful translation assistant. Translate the given English sentence to Chinese. Output strictly in JSON format.
-Required JSON key:
-"translation": The Chinese translation.
-
-Output strictly valid JSON only. Do not wrap in markdown or add any conversational text.`;
+    systemPrompt = `把给定英文句子翻译成简洁自然的中文。只输出一行 NDJSON，不要输出 Markdown 或其他文字：
+{"field":"translation","value":"中文翻译"}`;
   }
 
+  const streamAccumulator = createStreamAccumulator(isWord, onProgress);
   const rawResult = await getAiResponse(
     apiUrl,
     apiKey,
     modelName,
     systemPrompt,
     text,
+    (delta) => streamAccumulator.push(delta),
   );
-  const result = normalizeAiResponse(rawResult, isWord);
+  const streamedResult = streamAccumulator.finish();
+  const result = streamedResult
+    ? normalizeAiResponse(streamedResult, isWord)
+    : normalizeAiResponse(rawResult, isWord);
   translationCache.set(cacheKey, result);
   return result;
+}
+
+function createStreamAccumulator(isWord, onProgress) {
+  let buffer = "";
+  const fields = {};
+  let parsedFieldCount = 0;
+
+  function consumeLine(line) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("```")) return;
+
+    let event;
+    try {
+      event = JSON.parse(trimmed);
+    } catch (e) {
+      return;
+    }
+
+    if (typeof event.field !== "string" || !("value" in event)) return;
+    fields[event.field] = event.value;
+    parsedFieldCount += 1;
+
+    if (onProgress) {
+      onProgress(createPartialResponse(fields, isWord));
+    }
+  }
+
+  return {
+    push(delta) {
+      buffer += delta;
+      const lines = buffer.split(/\r?\n/);
+      buffer = lines.pop() || "";
+      lines.forEach(consumeLine);
+    },
+    finish() {
+      consumeLine(buffer);
+      return parsedFieldCount > 0 ? fields : null;
+    },
+  };
+}
+
+function createPartialResponse(fields, isWord) {
+  if (!isWord) {
+    return {
+      type: "sentence",
+      translation:
+        typeof fields.translation === "string" ? fields.translation : "",
+    };
+  }
+
+  const components = Array.isArray(fields.components)
+    ? fields.components.map(normalizeWordComponent).filter((item) => item.text)
+    : [];
+
+  return {
+    type: "word",
+    meaning: typeof fields.meaning === "string" ? fields.meaning.trim() : "",
+    pos:
+      typeof fields.pos === "string"
+        ? normalizeChinesePartOfSpeech(fields.pos)
+        : "",
+    root: components.map((component) => component.text).join(" "),
+    components,
+    composition:
+      typeof fields.composition === "string"
+        ? fields.composition.trim()
+        : typeof fields.origin === "string"
+          ? fields.origin.trim()
+          : "",
+  };
 }
 
 function normalizeAiResponse(rawResponse, isWord) {
@@ -201,7 +295,11 @@ function normalizeWordResponse(parsed) {
     ),
     root: components.map((component) => component.text).join(" "),
     components,
-    origin: getFirstString(parsed, [
+    composition: getFirstString(parsed, [
+      "composition",
+      "assembly",
+      "构词组合",
+      "组合说明",
       "origin",
       "origin_zh",
       "构词来历",
@@ -213,7 +311,7 @@ function normalizeWordResponse(parsed) {
     ]),
   };
 
-  validateRequiredFields(normalized, ["meaning", "pos", "origin"]);
+  validateRequiredFields(normalized, ["meaning", "pos", "composition"]);
   validateWordComponents(normalized.components);
   return normalized;
 }

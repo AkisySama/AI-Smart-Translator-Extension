@@ -1,6 +1,16 @@
 let popupElement = null;
+const popupElements = new Set();
 let triggerIconElement = null;
+let activeTranslationPort = null;
+let popupView = null;
+let typewriterQueue = Promise.resolve();
+let typewriterGeneration = 0;
 let selectionAtMouseDown = '';
+let popupDragState = null;
+
+const POPUP_PIN_MODE_NONE = 'none';
+const POPUP_PIN_MODE_VIEWPORT = 'viewport';
+const POPUP_PIN_MODE_PAGE = 'page';
 
 // Variables to store current selection info for delayed translation lookup
 let currentSelectionText = '';
@@ -9,17 +19,22 @@ let mouseX = 0;
 let mouseY = 0;
 
 document.addEventListener('mouseup', (event) => {
+  if (popupDragState) {
+    stopPopupDrag();
+    return;
+  }
+
   const selection = window.getSelection();
   const text = selection.toString().trim();
 
   // If clicked inside our popup or trigger icon, do nothing
-  if ((popupElement && popupElement.contains(event.target)) || 
+  if (isInsideAnyPopup(event.target) ||
       (triggerIconElement && triggerIconElement.contains(event.target))) {
     return;
   }
 
   // Remove existing elements if clicked outside or selection is empty
-  removePopup();
+  removeUnpinnedPopups();
   removeTriggerIcon();
 
   if (!text) {
@@ -72,9 +87,7 @@ document.addEventListener('mousedown', (event) => {
   selectionAtMouseDown = window.getSelection().toString().trim();
   
   // If clicking outside popup, remove it
-  if (popupElement && !popupElement.contains(event.target)) {
-    removePopup();
-  }
+  if (!isInsideAnyPopup(event.target)) removeUnpinnedPopups();
   
   // If clicking outside trigger icon, remove it
   if (triggerIconElement && !triggerIconElement.contains(event.target)) {
@@ -108,36 +121,52 @@ function showTriggerIcon(x, y) {
     const isWord = currentIsWord;
     
     // Create loading popup at the saved position
-    showPopup(mouseX, mouseY, "", true);
+    showPopup(mouseX, mouseY, "", true, isWord);
     
     // Remove the trigger icon since translation is initiated
     removeTriggerIcon();
 
-    // Send message to background script
-    chrome.runtime.sendMessage({ action: "translate", text: selectedText, isWord }, (response) => {
-      if (chrome.runtime.lastError) {
-        updatePopupError(chrome.runtime.lastError.message);
+    if (activeTranslationPort) activeTranslationPort.disconnect();
+    const port = chrome.runtime.connect({ name: 'translation-stream' });
+    activeTranslationPort = port;
+
+    port.onMessage.addListener((message) => {
+      if (port !== activeTranslationPort) return;
+
+      if (message.type === 'error') {
+        updatePopupError(message.error);
+        activeTranslationPort = null;
+        port.disconnect();
         return;
       }
 
-      if (response && response.error) {
-        updatePopupError(response.error);
-        return;
-      }
-
-      if (!response || !response.data || typeof response.data !== 'object') {
+      if (!message.data || typeof message.data !== 'object') {
         updatePopupError('AI 返回的数据格式异常，请重试。');
         return;
       }
 
-      if (response.data.type === 'word') {
-        renderWordPopup(response.data, selectedText);
-      } else if (response.data.type === 'sentence') {
-        renderSentencePopup(response.data);
+      if (message.data.type === 'word') {
+        renderWordPopup(message.data, selectedText);
+      } else if (message.data.type === 'sentence') {
+        renderSentencePopup(message.data);
       } else {
         updatePopupError('AI 返回了未知的结果类型，请重试。');
       }
+
+      if (message.type === 'result') {
+        activeTranslationPort = null;
+        port.disconnect();
+      }
     });
+
+    port.onDisconnect.addListener(() => {
+      if (port !== activeTranslationPort) return;
+      activeTranslationPort = null;
+      const message = chrome.runtime.lastError?.message;
+      updatePopupError(message || '流式连接已中断，请重试。');
+    });
+
+    port.postMessage({ action: 'translate', text: selectedText, isWord });
   });
 
   document.body.appendChild(triggerIconElement);
@@ -150,18 +179,180 @@ function removeTriggerIcon() {
   }
 }
 
-function removePopup() {
-  if (popupElement) {
-    popupElement.remove();
+function getPopupPinMode(element) {
+  return element?.dataset.pinMode || POPUP_PIN_MODE_NONE;
+}
+
+function isPopupPinned(element) {
+  return getPopupPinMode(element) !== POPUP_PIN_MODE_NONE;
+}
+
+function isInsideAnyPopup(target) {
+  return [...popupElements].some((element) => element.contains(target));
+}
+
+function removePopup(target = popupElement) {
+  if (!target || isPopupPinned(target)) return;
+
+  stopPopupDrag(target);
+  popupElements.delete(target);
+  target.remove();
+
+  if (target === popupElement) {
     popupElement = null;
+    resetPopupView();
   }
 }
 
-function showPopup(x, y, content, isLoading = false) {
+function removeUnpinnedPopups() {
+  [...popupElements].forEach((element) => {
+    if (!isPopupPinned(element)) removePopup(element);
+  });
+}
+
+function getPinButtonTitle(mode) {
+  if (mode === POPUP_PIN_MODE_VIEWPORT) return '改为随页面滚动';
+  if (mode === POPUP_PIN_MODE_PAGE) return '取消固定窗口';
+  return '固定在屏幕';
+}
+
+function syncPinButton(element) {
+  const pinButton = element?.querySelector('.ai-pin-btn');
+  if (!pinButton) return;
+
+  const mode = getPopupPinMode(element);
+  const title = getPinButtonTitle(mode);
+  pinButton.dataset.pinMode = mode;
+  pinButton.setAttribute('aria-pressed', String(mode !== POPUP_PIN_MODE_NONE));
+  pinButton.title = title;
+  pinButton.setAttribute('aria-label', title);
+}
+
+function setPopupPinMode(element, mode) {
+  if (!element) return;
+
+  const currentMode = getPopupPinMode(element);
+  if (currentMode === mode) {
+    syncPinButton(element);
+    return;
+  }
+
+  const rect = element.getBoundingClientRect();
+  if (mode === POPUP_PIN_MODE_VIEWPORT) {
+    element.style.position = 'fixed';
+    element.style.left = `${rect.left}px`;
+    element.style.top = `${rect.top}px`;
+  } else {
+    element.style.position = 'absolute';
+    element.style.left = `${rect.left + window.scrollX}px`;
+    element.style.top = `${rect.top + window.scrollY}px`;
+  }
+
+  element.dataset.pinMode = mode;
+  element.classList.toggle('ai-translator-popup--pinned', mode !== POPUP_PIN_MODE_NONE);
+  element.classList.toggle('ai-translator-popup--page-pinned', mode === POPUP_PIN_MODE_PAGE);
+  syncPinButton(element);
+}
+
+function cyclePopupPinMode(element) {
+  const currentMode = getPopupPinMode(element);
+  const nextMode = {
+    [POPUP_PIN_MODE_NONE]: POPUP_PIN_MODE_VIEWPORT,
+    [POPUP_PIN_MODE_VIEWPORT]: POPUP_PIN_MODE_PAGE,
+    [POPUP_PIN_MODE_PAGE]: POPUP_PIN_MODE_NONE,
+  }[currentMode];
+  setPopupPinMode(element, nextMode);
+}
+
+function clampPopupPosition(element, left, top, mode) {
+  const margin = 8;
+  const rect = element.getBoundingClientRect();
+  const isViewportPosition = mode === POPUP_PIN_MODE_VIEWPORT;
+  const originX = isViewportPosition ? 0 : window.scrollX;
+  const originY = isViewportPosition ? 0 : window.scrollY;
+  const viewportWidth = window.innerWidth;
+  const viewportHeight = window.innerHeight;
+  const minLeft = originX + margin;
+  const minTop = originY + margin;
+  const maxLeft = Math.max(minLeft, originX + viewportWidth - rect.width - margin);
+  const maxTop = Math.max(minTop, originY + viewportHeight - rect.height - margin);
+
+  return {
+    left: Math.min(Math.max(left, minLeft), maxLeft),
+    top: Math.min(Math.max(top, minTop), maxTop),
+  };
+}
+
+function stopPopupDrag(target = null) {
+  if (!popupDragState || (target && popupDragState.element !== target)) return;
+
+  const element = popupDragState.element;
+  popupDragState = null;
+  element?.classList.remove('ai-translator-popup--dragging');
+  document.removeEventListener('mousemove', handlePopupDragMove);
+  document.removeEventListener('mouseup', stopPopupDrag);
+}
+
+function handlePopupDragMove(event) {
+  if (!popupDragState || !popupElements.has(popupDragState.element)) return;
+
+  if (event.buttons === 0) {
+    stopPopupDrag();
+    return;
+  }
+
+  const { element, mode } = popupDragState;
+  const pointerX = mode === POPUP_PIN_MODE_VIEWPORT ? event.clientX : event.pageX;
+  const pointerY = mode === POPUP_PIN_MODE_VIEWPORT ? event.clientY : event.pageY;
+  const nextPosition = clampPopupPosition(
+    element,
+    popupDragState.startLeft + pointerX - popupDragState.startX,
+    popupDragState.startTop + pointerY - popupDragState.startY,
+    mode,
+  );
+  element.style.left = `${nextPosition.left}px`;
+  element.style.top = `${nextPosition.top}px`;
+}
+
+function startPopupDrag(event) {
+  const element = event.currentTarget;
+  if (!element || !popupElements.has(element) || event.button !== 0) return;
+
+  if (event.target.closest?.('button, a, input, textarea, select')) return;
+
+  const dragSurface = event.target.closest?.(
+    '.ai-word-header, .ai-sentence-card, .ai-translator-loading, .ai-error',
+  );
+  if (event.target !== element && !dragSurface) return;
+
+  const mode = getPopupPinMode(element);
+  const rect = element.getBoundingClientRect();
+  const isViewportPosition = mode === POPUP_PIN_MODE_VIEWPORT;
+  popupDragState = {
+    element,
+    mode,
+    startX: isViewportPosition ? event.clientX : event.pageX,
+    startY: isViewportPosition ? event.clientY : event.pageY,
+    startLeft: isViewportPosition ? rect.left : rect.left + window.scrollX,
+    startTop: isViewportPosition ? rect.top : rect.top + window.scrollY,
+  };
+
+  element.classList.add('ai-translator-popup--dragging');
+  event.preventDefault();
+  document.addEventListener('mousemove', handlePopupDragMove);
+  document.addEventListener('mouseup', stopPopupDrag);
+}
+
+function showPopup(x, y, content, isLoading = false, isWord = false) {
+  removeUnpinnedPopups();
+  resetPopupView();
   popupElement = document.createElement('div');
   popupElement.className = 'ai-translator-popup';
+  popupElement.dataset.pinMode = POPUP_PIN_MODE_NONE;
+  popupElements.add(popupElement);
   if (isLoading) {
     popupElement.classList.add('ai-translator-popup--loading');
+    popupElement.classList.toggle('ai-translator-popup--word', isWord);
   }
   popupElement.style.left = `${x}px`;
   popupElement.style.top = `${y + 15}px`;
@@ -176,6 +367,7 @@ function showPopup(x, y, content, isLoading = false) {
   }
 
   document.body.appendChild(popupElement);
+  popupElement.addEventListener('mousedown', startPopupDrag);
 
   // Adjust position if it goes off screen
   const rect = popupElement.getBoundingClientRect();
@@ -187,6 +379,8 @@ function showPopup(x, y, content, isLoading = false) {
     // If it goes off the bottom edge, place it above the cursor
     popupElement.style.top = `${y - rect.height - 15}px`;
   }
+
+  return popupElement;
 }
 
 function updatePopup(content) {
@@ -199,6 +393,7 @@ function updatePopup(content) {
 
 function updatePopupError(message) {
   if (popupElement) {
+    resetPopupView();
     popupElement.classList.remove('ai-translator-popup--loading');
     popupElement.innerHTML = '';
     const div = document.createElement('div');
@@ -206,6 +401,53 @@ function updatePopupError(message) {
     div.textContent = message;
     popupElement.appendChild(div);
   }
+}
+
+function resetPopupView() {
+  popupView = null;
+  typewriterGeneration += 1;
+  typewriterQueue = Promise.resolve();
+}
+
+function queueTypewriter(element, value, speed = 18) {
+  const text = value || '';
+  const generation = typewriterGeneration;
+  typewriterQueue = typewriterQueue.then(() => new Promise((resolve) => {
+    if (!element || !element.isConnected || generation !== typewriterGeneration) {
+      resolve();
+      return;
+    }
+
+    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+      element.textContent = text;
+      resolve();
+      return;
+    }
+
+    const characters = Array.from(text);
+    let index = 0;
+    element.textContent = '';
+    element.classList.add('ai-typewriter-active');
+
+    function typeNext() {
+      if (!element.isConnected || generation !== typewriterGeneration) {
+        resolve();
+        return;
+      }
+
+      element.textContent += characters[index] || '';
+      index += 1;
+      if (index < characters.length) {
+        setTimeout(typeNext, speed);
+      } else {
+        element.classList.remove('ai-typewriter-active');
+        resolve();
+      }
+    }
+
+    if (characters.length > 0) typeNext();
+    else resolve();
+  }));
 }
 
 function speakWord(word) {
@@ -243,6 +485,33 @@ function createSpeakerButton(word) {
   return btn;
 }
 
+function createPinButton() {
+  const owner = popupElement;
+  const btn = document.createElement('button');
+  btn.className = 'ai-pin-btn';
+  btn.type = 'button';
+  btn.dataset.pinMode = getPopupPinMode(owner);
+  btn.setAttribute('aria-pressed', String(isPopupPinned(owner)));
+  btn.title = getPinButtonTitle(getPopupPinMode(owner));
+  btn.setAttribute('aria-label', btn.title);
+  btn.innerHTML = `
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M12 17v5"/>
+      <path d="M5 17h14"/>
+      <path d="M7 17V9L5 7h14l-2 2v8"/>
+      <path d="M9 3h6"/>
+      <path d="M9 3v4"/>
+      <path d="M15 3v4"/>
+    </svg>
+  `;
+  btn.addEventListener('click', (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    cyclePopupPinMode(owner);
+  });
+  return btn;
+}
+
 function createItem(label, value) {
   const div = document.createElement('div');
   div.className = 'ai-item';
@@ -258,39 +527,103 @@ function createItem(label, value) {
 }
 
 function renderWordPopup(data, word) {
+  if (!popupView || popupView.type !== 'word' || popupView.word !== word) {
+    popupView = createWordPopupView(word);
+    updatePopup(popupView.card);
+  }
+
+  if (data.meaning && data.meaning !== popupView.meaning) {
+    popupView.meaning = data.meaning;
+    popupView.meaningElement.classList.remove('ai-stream-pending');
+    queueTypewriter(popupView.meaningElement, data.meaning, 22);
+  }
+
+  if (data.pos && data.pos !== popupView.pos) {
+    popupView.pos = data.pos;
+    popupView.metaElement.classList.remove('ai-stream-pending');
+    queueTypewriter(popupView.posElement, data.pos, 28);
+  }
+
+  const components = Array.isArray(data.components) && data.components.length > 0
+    ? data.components.filter(component => component && component.text)
+    : (data.root ? [{ text: data.root, type: '词根', meaning: '' }] : []);
+  const componentsKey = JSON.stringify(components);
+  if (components.length > 0 && componentsKey !== popupView.componentsKey) {
+    popupView.componentsKey = componentsKey;
+    popupView.componentBlock.classList.remove('ai-stream-pending');
+    popupView.componentList.replaceChildren();
+
+    components.forEach((component) => {
+      const chip = document.createElement('span');
+      chip.className = 'ai-component-chip';
+      const details = [component.type, component.meaning].filter(Boolean).join('：');
+      if (details) chip.title = details;
+      popupView.componentList.appendChild(chip);
+      chip.textContent = component.text;
+      chip.style.width = `${Math.ceil(chip.getBoundingClientRect().width)}px`;
+      chip.textContent = '';
+      queueTypewriter(chip, component.text, 24);
+    });
+  }
+
+  const composition = data.composition || data.origin || '';
+  if (composition && composition !== popupView.composition) {
+    popupView.composition = composition;
+    queueTypewriter(popupView.compositionElement, composition, 14);
+  }
+}
+
+function renderSentencePopup(data) {
+  if (!popupView || popupView.type !== 'sentence') {
+    const card = document.createElement('div');
+    card.className = 'ai-sentence-card';
+    const item = createItem('翻译：', '');
+    card.appendChild(item);
+    popupView = {
+      type: 'sentence',
+      card,
+      translation: '',
+      valueElement: item.querySelector('.ai-val'),
+    };
+    updatePopup(card);
+  }
+
+  if (data.translation && data.translation !== popupView.translation) {
+    popupView.translation = data.translation;
+    queueTypewriter(popupView.valueElement, data.translation, 18);
+  }
+}
+
+function createWordPopupView(word) {
   const card = document.createElement('div');
   card.className = 'ai-word-card';
 
   const wordHeader = document.createElement('div');
   wordHeader.className = 'ai-word-header';
+  const wordIdentity = document.createElement('div');
+  wordIdentity.className = 'ai-word-identity';
   const wordSpan = document.createElement('span');
   wordSpan.className = 'ai-word-text';
   wordSpan.textContent = word;
-  wordHeader.appendChild(wordSpan);
-  wordHeader.appendChild(createSpeakerButton(word));
+  wordIdentity.appendChild(wordSpan);
+  wordIdentity.appendChild(createSpeakerButton(word));
+  wordHeader.appendChild(wordIdentity);
+  wordHeader.appendChild(createPinButton());
   card.appendChild(wordHeader);
 
-  const meaning = document.createElement('div');
-  meaning.className = 'ai-word-meaning';
-  meaning.textContent = data.meaning || '';
-  card.appendChild(meaning);
+  const meaningElement = document.createElement('div');
+  meaningElement.className = 'ai-word-meaning ai-stream-pending';
+  card.appendChild(meaningElement);
 
-  if (data.pos) {
-    const meta = document.createElement('div');
-    meta.className = 'ai-word-meta';
-    const posTag = document.createElement('span');
-    posTag.className = 'ai-pos-tag';
-    posTag.textContent = data.pos;
-    meta.appendChild(posTag);
-    card.appendChild(meta);
-  }
-
-  const components = Array.isArray(data.components) && data.components.length > 0
-    ? data.components
-    : [{ text: data.root || '', type: '词根', meaning: '' }];
+  const metaElement = document.createElement('div');
+  metaElement.className = 'ai-word-meta ai-stream-pending';
+  const posElement = document.createElement('span');
+  posElement.className = 'ai-pos-tag';
+  metaElement.appendChild(posElement);
+  card.appendChild(metaElement);
 
   const componentBlock = document.createElement('div');
-  componentBlock.className = 'ai-component-block';
+  componentBlock.className = 'ai-component-block ai-stream-pending';
   const componentHeading = document.createElement('div');
   componentHeading.className = 'ai-component-heading';
   const rootLabel = document.createElement('span');
@@ -298,36 +631,28 @@ function renderWordPopup(data, word) {
   rootLabel.textContent = '构词';
   const componentList = document.createElement('div');
   componentList.className = 'ai-component-list';
-
-  components
-    .filter(component => component && component.text)
-    .forEach((component) => {
-      const chip = document.createElement('span');
-      chip.className = 'ai-component-chip';
-      chip.textContent = component.text;
-      const details = [component.type, component.meaning].filter(Boolean).join('：');
-      if (details) {
-        chip.title = details;
-      }
-      componentList.appendChild(chip);
-    });
-
   componentHeading.appendChild(rootLabel);
   componentHeading.appendChild(componentList);
   componentBlock.appendChild(componentHeading);
 
-  const componentOrigin = document.createElement('div');
-  componentOrigin.className = 'ai-component-origin';
-  componentOrigin.textContent = data.origin || '';
-  componentBlock.appendChild(componentOrigin);
+  const compositionElement = document.createElement('div');
+  compositionElement.className = 'ai-component-explanation';
+  componentBlock.appendChild(compositionElement);
   card.appendChild(componentBlock);
 
-  updatePopup(card);
-}
-
-function renderSentencePopup(data) {
-  const card = document.createElement('div');
-  card.className = 'ai-sentence-card';
-  card.appendChild(createItem('翻译：', data.translation));
-  updatePopup(card);
+  return {
+    type: 'word',
+    word,
+    card,
+    meaning: '',
+    pos: '',
+    componentsKey: '',
+    composition: '',
+    meaningElement,
+    metaElement,
+    posElement,
+    componentBlock,
+    componentList,
+    compositionElement,
+  };
 }

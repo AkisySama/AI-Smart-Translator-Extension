@@ -19,7 +19,7 @@ test('word popup renders a focused learning card hierarchy', () => {
   assert.match(contentJs, /ai-component-block/);
   assert.match(contentJs, /ai-component-heading/);
   assert.match(contentJs, /ai-component-list/);
-  assert.match(contentJs, /ai-component-origin/);
+  assert.match(contentJs, /ai-component-explanation/);
 });
 
 test('word card styles make meaning primary and composition label compact', () => {
