@@ -83,7 +83,8 @@ test('background exposes fields as soon as each NDJSON line completes', () => {
 });
 
 test('content script renders both progress and final port messages', () => {
-  assert.match(contentJs, /chrome\.runtime\.connect/);
+  assert.match(contentJs, /function connectTranslationStream/);
+  assert.match(contentJs, /runtime\.connect/);
   assert.match(contentJs, /message\.type === 'result'/);
   assert.match(contentJs, /renderWordPopup\(message\.data/);
 });

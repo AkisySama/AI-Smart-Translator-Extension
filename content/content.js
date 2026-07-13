@@ -126,8 +126,14 @@ function showTriggerIcon(x, y) {
     // Remove the trigger icon since translation is initiated
     removeTriggerIcon();
 
-    if (activeTranslationPort) activeTranslationPort.disconnect();
-    const port = chrome.runtime.connect({ name: 'translation-stream' });
+    if (activeTranslationPort) {
+      disconnectTranslationPort(activeTranslationPort);
+      activeTranslationPort = null;
+    }
+
+    const port = connectTranslationStream();
+    if (!port) return;
+
     activeTranslationPort = port;
 
     port.onMessage.addListener((message) => {
@@ -136,7 +142,7 @@ function showTriggerIcon(x, y) {
       if (message.type === 'error') {
         updatePopupError(message.error);
         activeTranslationPort = null;
-        port.disconnect();
+        disconnectTranslationPort(port);
         return;
       }
 
@@ -155,18 +161,24 @@ function showTriggerIcon(x, y) {
 
       if (message.type === 'result') {
         activeTranslationPort = null;
-        port.disconnect();
+        disconnectTranslationPort(port);
       }
     });
 
     port.onDisconnect.addListener(() => {
       if (port !== activeTranslationPort) return;
       activeTranslationPort = null;
-      const message = chrome.runtime.lastError?.message;
+      const message = globalThis.chrome?.runtime?.lastError?.message;
       updatePopupError(message || '流式连接已中断，请重试。');
     });
 
-    port.postMessage({ action: 'translate', text: selectedText, isWord });
+    try {
+      port.postMessage({ action: 'translate', text: selectedText, isWord });
+    } catch (error) {
+      if (port !== activeTranslationPort) return;
+      activeTranslationPort = null;
+      updatePopupError('扩展连接已失效，请刷新页面后重试。');
+    }
   });
 
   document.body.appendChild(triggerIconElement);
@@ -176,6 +188,29 @@ function removeTriggerIcon() {
   if (triggerIconElement) {
     triggerIconElement.remove();
     triggerIconElement = null;
+  }
+}
+
+function disconnectTranslationPort(port) {
+  try {
+    port?.disconnect();
+  } catch (error) {
+    // The extension context may already have been invalidated.
+  }
+}
+
+function connectTranslationStream() {
+  const runtime = globalThis.chrome?.runtime;
+  if (!runtime || typeof runtime.connect !== 'function') {
+    updatePopupError('扩展连接已失效，请刷新页面后重试。');
+    return null;
+  }
+
+  try {
+    return runtime.connect({ name: 'translation-stream' });
+  } catch (error) {
+    updatePopupError('扩展连接已失效，请刷新页面后重试。');
+    return null;
   }
 }
 
