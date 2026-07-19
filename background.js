@@ -99,8 +99,7 @@ async function handleTranslation(text, isWord, onProgress) {
 {"field":"composition","value":"用一句中文说明各部分怎样组合、各自作用及整体含义，不超过70字"}
 组合说明只解释构词关系，不展开历史演变。例如：devorare 由 de-（向下/完全）加 vorare（吞食）构成，-ing 为英语现在分词后缀，表示正在进行的动作。`;
   } else {
-    systemPrompt = `把给定英文句子翻译成简洁自然的中文。只输出一行 NDJSON，不要输出 Markdown 或其他文字：
-{"field":"translation","value":"中文翻译"}`;
+    systemPrompt = `把给定英文文本翻译成简洁自然的中文。只输出译文本身，不要输出 JSON、Markdown、解释或“翻译：”等前缀。完整翻译全部内容，不要省略。`;
   }
 
   const streamAccumulator = createStreamAccumulator(isWord, onProgress);
@@ -191,10 +190,63 @@ function createPartialResponse(fields, isWord) {
 }
 
 function normalizeAiResponse(rawResponse, isWord) {
+  if (!isWord) {
+    return normalizeSentenceAiResponse(rawResponse);
+  }
+
   const parsed = parseJsonObject(rawResponse);
-  return isWord
-    ? normalizeWordResponse(parsed)
-    : normalizeSentenceResponse(parsed);
+  return normalizeWordResponse(parsed);
+}
+
+function normalizeSentenceAiResponse(rawResponse) {
+  if (
+    rawResponse &&
+    typeof rawResponse === "object" &&
+    !Array.isArray(rawResponse)
+  ) {
+    return normalizeSentenceResponse(rawResponse);
+  }
+
+  if (typeof rawResponse !== "string") {
+    throw new Error("AI 返回的译文格式不正确，请重试。");
+  }
+
+  const trimmed = rawResponse.trim();
+  const jsonCandidates = [
+    trimmed,
+    stripMarkdownFence(trimmed),
+    extractFirstJsonObject(trimmed),
+  ].filter(Boolean);
+
+  // Keep accepting the old JSON/NDJSON response so cached or less obedient
+  // providers continue to work after switching sentence translation to text.
+  for (const candidate of jsonCandidates) {
+    try {
+      const parsed = JSON.parse(candidate);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        return normalizeSentenceResponse(parsed);
+      }
+    } catch (e) {
+      // Plain text (or an incomplete JSON wrapper) is handled below.
+    }
+  }
+
+  const salvagedTranslation = extractJsonStringField(trimmed, [
+    "translation",
+    "value",
+    "翻译",
+    "中文翻译",
+  ]);
+  if (salvagedTranslation) {
+    return normalizeSentenceResponse({ translation: salvagedTranslation });
+  }
+
+  const translation = cleanPlainTranslation(stripMarkdownFence(trimmed) || trimmed);
+  if (!translation || /^[\[{]/.test(translation)) {
+    throw new Error("AI 没有返回可用的译文，请重试或换一个模型。");
+  }
+
+  return normalizeSentenceResponse({ translation });
 }
 
 function parseJsonObject(rawResponse) {
@@ -232,8 +284,77 @@ function parseJsonObject(rawResponse) {
 }
 
 function stripMarkdownFence(text) {
-  const match = text.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+  const match = text.match(/^```(?:json|text|markdown)?\s*([\s\S]*?)\s*```$/i);
   return match ? match[1].trim() : "";
+}
+
+function cleanPlainTranslation(text) {
+  let cleaned = text
+    .trim()
+    .replace(/^(?:translation|中文翻译|翻译)\s*[:：]\s*/i, "")
+    .trim();
+
+  const quotePairs = [
+    ['"', '"'],
+    ["'", "'"],
+    ["“", "”"],
+    ["‘", "’"],
+  ];
+  for (const [opening, closing] of quotePairs) {
+    if (
+      cleaned.length >= 2 &&
+      cleaned.startsWith(opening) &&
+      cleaned.endsWith(closing)
+    ) {
+      cleaned = cleaned.slice(opening.length, -closing.length).trim();
+      break;
+    }
+  }
+
+  return cleaned;
+}
+
+function extractJsonStringField(text, keys) {
+  for (const key of keys) {
+    const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const match = new RegExp(`"${escapedKey}"\\s*:\\s*"`, "i").exec(text);
+    if (!match) continue;
+
+    const start = match.index + match[0].length;
+    let fragment = "";
+    let escaped = false;
+
+    for (let index = start; index < text.length; index += 1) {
+      const char = text[index];
+      if (!escaped && char === '"') break;
+      fragment += char;
+
+      if (escaped) {
+        escaped = false;
+      } else if (char === "\\") {
+        escaped = true;
+      }
+    }
+
+    if (escaped) fragment = fragment.slice(0, -1);
+    const decoded = decodeJsonStringFragment(fragment).trim();
+    if (decoded) return decoded;
+  }
+
+  return "";
+}
+
+function decodeJsonStringFragment(fragment) {
+  try {
+    return JSON.parse(`"${fragment.replace(/[\r\n]/g, "\\n")}"`);
+  } catch (e) {
+    return fragment
+      .replace(/\\n/g, "\n")
+      .replace(/\\r/g, "\r")
+      .replace(/\\t/g, "\t")
+      .replace(/\\"/g, '"')
+      .replace(/\\\\/g, "\\");
+  }
 }
 
 function extractFirstJsonObject(text) {
@@ -416,9 +537,15 @@ function normalizeChinesePartOfSpeech(pos) {
 }
 
 function normalizeSentenceResponse(parsed) {
+  const legacyFieldValue =
+    parsed.field === "translation" && typeof parsed.value === "string"
+      ? parsed.value
+      : "";
   const normalized = {
     type: "sentence",
-    translation: getFirstString(parsed, ["translation", "翻译", "中文翻译"]),
+    translation:
+      getFirstString(parsed, ["translation", "翻译", "中文翻译"]) ||
+      legacyFieldValue.trim(),
   };
 
   validateRequiredFields(normalized, ["translation"]);

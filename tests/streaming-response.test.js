@@ -82,6 +82,55 @@ test('background exposes fields as soon as each NDJSON line completes', () => {
   assert.equal(updates[1].pos, '名词');
 });
 
+test('sentence translation accepts plain text without requiring JSON', () => {
+  const context = vm.createContext({
+    chrome: {
+      runtime: {
+        onMessage: { addListener() {} },
+        onConnect: { addListener() {} },
+      },
+    },
+  });
+  vm.runInContext(backgroundJs.replace(/^import .*\n/, ''), context);
+  const normalize = vm.runInContext('normalizeAiResponse', context);
+
+  const result = normalize('这是一个较长句子的自然中文翻译。', false);
+  assert.equal(result.type, 'sentence');
+  assert.equal(result.translation, '这是一个较长句子的自然中文翻译。');
+});
+
+test('sentence translation remains compatible with legacy NDJSON', () => {
+  const context = vm.createContext({
+    chrome: {
+      runtime: {
+        onMessage: { addListener() {} },
+        onConnect: { addListener() {} },
+      },
+    },
+  });
+  vm.runInContext(backgroundJs.replace(/^import .*\n/, ''), context);
+  const normalize = vm.runInContext('normalizeAiResponse', context);
+
+  const result = normalize('{"field":"translation","value":"兼容旧格式。"}', false);
+  assert.equal(result.translation, '兼容旧格式。');
+});
+
+test('sentence translation salvages a value from a truncated JSON wrapper', () => {
+  const context = vm.createContext({
+    chrome: {
+      runtime: {
+        onMessage: { addListener() {} },
+        onConnect: { addListener() {} },
+      },
+    },
+  });
+  vm.runInContext(backgroundJs.replace(/^import .*\n/, ''), context);
+  const normalize = vm.runInContext('normalizeAiResponse', context);
+
+  const result = normalize('{"field":"translation","value":"即使包装 JSON 没有正常闭合，也能显示已经返回的长句译文', false);
+  assert.equal(result.translation, '即使包装 JSON 没有正常闭合，也能显示已经返回的长句译文');
+});
+
 test('content script renders both progress and final port messages', () => {
   assert.match(contentJs, /function connectTranslationStream/);
   assert.match(contentJs, /runtime\.connect/);
