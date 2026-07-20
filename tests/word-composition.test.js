@@ -2,6 +2,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
+const vm = require('node:vm');
 
 const rootDir = path.resolve(__dirname, '..');
 const backgroundJs = fs.readFileSync(path.join(rootDir, 'background.js'), 'utf8');
@@ -31,10 +32,54 @@ test('word prompt emits important fields before the composition explanation', ()
 
 test('background normalizes components with legacy root fallback', () => {
   assert.match(backgroundJs, /function normalizeWordComponents/);
-  assert.match(backgroundJs, /const components = normalizeWordComponents\(parsed, legacyRoot\)/);
+  assert.match(
+    backgroundJs,
+    /const components = normalizeWordComponents\(parsed, legacyRoot, fallbackWord\)/,
+  );
   assert.match(backgroundJs, /wordParts/);
   assert.match(backgroundJs, /morphemes/);
   assert.match(backgroundJs, /fallbackRoot/);
+});
+
+function loadBackgroundFunction(name) {
+  const context = vm.createContext({
+    chrome: {
+      runtime: {
+        onMessage: { addListener() {} },
+        onConnect: { addListener() {} },
+      },
+    },
+  });
+  vm.runInContext(backgroundJs.replace(/^import .*\n/, ''), context);
+  return vm.runInContext(name, context);
+}
+
+test('an indivisible word falls back to the selected word as one stem', () => {
+  const normalize = loadBackgroundFunction('normalizeAiResponse');
+  const result = normalize({
+    meaning: '韵律；节奏',
+    pos: '名词',
+    components: [],
+    composition: '该词不宜进一步强行拆分。',
+  }, true, 'rhythm');
+
+  assert.equal(result.components.length, 1);
+  assert.equal(result.components[0].text, 'rhythm');
+  assert.equal(result.components[0].type, '词干');
+});
+
+test('word components accept a single object or a string representation', () => {
+  const normalizeComponents = loadBackgroundFunction('normalizeWordComponentValue');
+
+  const objectResult = normalizeComponents({ text: 'spect', type: '词根', meaning: '看' });
+  assert.equal(objectResult.length, 1);
+  assert.equal(objectResult[0].text, 'spect');
+
+  const stringResult = normalizeComponents('un- + happy + -ness');
+  assert.deepEqual(
+    Array.from(stringResult, (component) => component.text),
+    ['un-', 'happy', '-ness'],
+  );
 });
 
 test('word card renders composition chips instead of one root value', () => {

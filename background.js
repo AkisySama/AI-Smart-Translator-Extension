@@ -92,7 +92,7 @@ async function handleTranslation(text, isWord, onProgress) {
 
   let systemPrompt = "";
   if (isWord) {
-    systemPrompt = `分析给定英文词汇，帮助英语基础较好的用户快速建立构词记忆。构词成分最多4个，按词中出现顺序排列；包含派生或屈折后缀，必要时保留拉丁语或希腊语原形，不要强行拆解无法可靠拆解的词。严格按以下顺序输出四行 NDJSON，每行一个完整 JSON 对象，不要输出 Markdown 或其他文字：
+    systemPrompt = `分析给定英文词汇，帮助英语基础较好的用户快速建立构词记忆。构词成分最多4个，按词中出现顺序排列；包含派生或屈折后缀，必要时保留拉丁语或希腊语原形，不要强行拆解无法可靠拆解的词；无法可靠拆解时，将完整原词作为唯一的“词干”成分，components 不得为空。严格按以下顺序输出四行 NDJSON，每行一个完整 JSON 对象，不要输出 Markdown 或其他文字：
 {"field":"meaning","value":"简明中文释义，不超过20字"}
 {"field":"pos","value":"中文词性，如名词、动词、形容词"}
 {"field":"components","value":[{"text":"构词成分或原形","type":"前缀/词根/后缀/词干","meaning":"不超过12字的中文含义"}]}
@@ -113,8 +113,8 @@ async function handleTranslation(text, isWord, onProgress) {
   );
   const streamedResult = streamAccumulator.finish();
   const result = streamedResult
-    ? normalizeAiResponse(streamedResult, isWord)
-    : normalizeAiResponse(rawResult, isWord);
+    ? normalizeAiResponse(streamedResult, isWord, text)
+    : normalizeAiResponse(rawResult, isWord, text);
   translationCache.set(cacheKey, result);
   return result;
 }
@@ -167,9 +167,7 @@ function createPartialResponse(fields, isWord) {
     };
   }
 
-  const components = Array.isArray(fields.components)
-    ? fields.components.map(normalizeWordComponent).filter((item) => item.text)
-    : [];
+  const components = normalizeWordComponentValue(fields.components);
 
   return {
     type: "word",
@@ -189,13 +187,13 @@ function createPartialResponse(fields, isWord) {
   };
 }
 
-function normalizeAiResponse(rawResponse, isWord) {
+function normalizeAiResponse(rawResponse, isWord, fallbackWord = "") {
   if (!isWord) {
     return normalizeSentenceAiResponse(rawResponse);
   }
 
   const parsed = parseJsonObject(rawResponse);
-  return normalizeWordResponse(parsed);
+  return normalizeWordResponse(parsed, fallbackWord);
 }
 
 function normalizeSentenceAiResponse(rawResponse) {
@@ -400,9 +398,9 @@ function extractFirstJsonObject(text) {
   return "";
 }
 
-function normalizeWordResponse(parsed) {
+function normalizeWordResponse(parsed, fallbackWord = "") {
   const legacyRoot = getFirstString(parsed, ["root", "词根"]);
-  const components = normalizeWordComponents(parsed, legacyRoot);
+  const components = normalizeWordComponents(parsed, legacyRoot, fallbackWord);
   const normalized = {
     type: "word",
     meaning: getFirstString(parsed, [
@@ -437,22 +435,21 @@ function normalizeWordResponse(parsed) {
   return normalized;
 }
 
-function normalizeWordComponents(parsed, fallbackRoot) {
+function normalizeWordComponents(parsed, fallbackRoot, fallbackWord = "") {
   const rawComponents =
     parsed.components ||
+    parsed.component ||
     parsed.wordComponents ||
     parsed.word_parts ||
     parsed.wordParts ||
+    parsed.word_structure ||
+    parsed.wordStructure ||
     parsed.parts ||
     parsed.morphemes ||
     parsed["构词"] ||
     parsed["构词成分"];
 
-  const components = Array.isArray(rawComponents)
-    ? rawComponents
-        .map(normalizeWordComponent)
-        .filter((component) => component.text)
-    : [];
+  const components = normalizeWordComponentValue(rawComponents);
 
   if (components.length > 0) {
     return components;
@@ -460,6 +457,59 @@ function normalizeWordComponents(parsed, fallbackRoot) {
 
   if (fallbackRoot) {
     return [{ text: fallbackRoot, type: "词根", meaning: "" }];
+  }
+
+  const wholeWord = typeof fallbackWord === "string" ? fallbackWord.trim() : "";
+  if (wholeWord) {
+    return [{ text: wholeWord, type: "词干", meaning: "" }];
+  }
+
+  return [];
+}
+
+function normalizeWordComponentValue(rawComponents) {
+  if (Array.isArray(rawComponents)) {
+    return rawComponents
+      .map(normalizeWordComponent)
+      .filter((component) => component.text);
+  }
+
+  if (typeof rawComponents === "string") {
+    const trimmed = rawComponents.trim();
+    if (!trimmed) return [];
+
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (parsed !== rawComponents) {
+        return normalizeWordComponentValue(parsed);
+      }
+    } catch (e) {
+      // Treat non-JSON text as one or more '+'-separated components.
+    }
+
+    return trimmed
+      .split(/\s*\+\s*/)
+      .map(normalizeWordComponent)
+      .filter((component) => component.text);
+  }
+
+  if (rawComponents && typeof rawComponents === "object") {
+    const singleComponent = normalizeWordComponent(rawComponents);
+    if (singleComponent.text) return [singleComponent];
+
+    return Object.entries(rawComponents).flatMap(([type, value]) => {
+      const values = Array.isArray(value) ? value : [value];
+      return values
+        .map((item) => {
+          if (typeof item === "string") {
+            return normalizeWordComponent({ text: item, type });
+          }
+          const component = normalizeWordComponent(item);
+          if (component.text && !component.type) component.type = type;
+          return component;
+        })
+        .filter((component) => component.text);
+    });
   }
 
   return [];
@@ -485,6 +535,12 @@ function normalizeWordComponent(component) {
       "value",
       "component",
       "morpheme",
+      "segment",
+      "form",
+      "affix",
+      "stem",
+      "prefix",
+      "suffix",
       "root",
       "成分",
       "构词成分",
