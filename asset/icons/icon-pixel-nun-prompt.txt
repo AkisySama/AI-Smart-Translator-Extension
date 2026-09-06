@@ -1,0 +1,8 @@
+Generated using built-in image_gen.
+Use case: stylized-concept
+Asset type: square production browser extension icon, pixel art anime character portrait.
+Primary request: a cute anime girl with golden yellow hair, vivid blue eyes, wearing a nun's headdress: black veil and white wimple framing her face.
+Composition: a single centered close-up head portrait with just a hint of shoulders, face large and easily recognizable at small toolbar sizes. Warm gentle cheerful expression, short golden bangs and golden side locks clearly visible beneath the black-and-white nun habit. Wholesome, fully clothed character.
+Style: authentic hand-placed retro 32-bit JRPG portrait pixel art, deliberately visible square pixels, crisp stepped edges, limited palette, compact clusters of flat colors and simple pixel shading, dark clean pixel outlines. Work visually on a 64x64 pixel grid enlarged with nearest-neighbor appearance. No smooth vector edges, no painterly strokes, no blur, no realistic rendering, no glossy 3D effects. Carefully drawn large vivid blue anime eyes.
+Background: uniform soft pastel sky blue square background, high contrast from golden hair and black nun veil.
+Constraints: one character, no text, no letters, no watermark, no UI, no frame, no extra objects, no elaborate scenery. The headdress must unmistakably be a nun's black veil and white wimple, not a maid headband. Entire headwear within canvas with narrow safe margins. Square image.

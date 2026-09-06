@@ -4,7 +4,6 @@ let triggerIconElement = null;
 let activeTranslationPort = null;
 let popupView = null;
 let typewriterQueue = Promise.resolve();
-let typewriterGeneration = 0;
 let selectionAtMouseDown = '';
 let popupDragState = null;
 
@@ -226,11 +225,13 @@ function isInsideAnyPopup(target) {
   return [...popupElements].some((element) => element.contains(target));
 }
 
-function removePopup(target = popupElement) {
-  if (!target || isPopupPinned(target)) return;
+function removePopup(target = popupElement, force = false) {
+  if (!target || (!force && isPopupPinned(target))) return;
 
   stopPopupDrag(target);
   popupElements.delete(target);
+  target._sizeObserver?.disconnect();
+  target._relatedPorts?.forEach(disconnectTranslationPort);
   target.remove();
 
   if (target === popupElement) {
@@ -252,8 +253,9 @@ function getPinButtonTitle(mode) {
 }
 
 function syncPinButton(element) {
-  const pinButton = element?.querySelector('.ai-pin-btn');
-  if (!pinButton) return;
+  const pinButtons = element?.querySelectorAll('.ai-pin-btn');
+  if (!pinButtons) return;
+  pinButtons.forEach((pinButton) => {
 
   const mode = getPopupPinMode(element);
   const title = getPinButtonTitle(mode);
@@ -261,6 +263,7 @@ function syncPinButton(element) {
   pinButton.setAttribute('aria-pressed', String(mode !== POPUP_PIN_MODE_NONE));
   pinButton.title = title;
   pinButton.setAttribute('aria-label', title);
+  });
 }
 
 function setPopupPinMode(element, mode) {
@@ -302,7 +305,7 @@ function cyclePopupPinMode(element) {
 function clampPopupPosition(element, left, top, mode) {
   const margin = 8;
   const rect = element.getBoundingClientRect();
-  const isViewportPosition = mode === POPUP_PIN_MODE_VIEWPORT;
+  const isViewportPosition = mode === POPUP_PIN_MODE_VIEWPORT || element.style.position === 'fixed';
   const originX = isViewportPosition ? 0 : window.scrollX;
   const originY = isViewportPosition ? 0 : window.scrollY;
   const viewportWidth = window.innerWidth;
@@ -337,8 +340,9 @@ function handlePopupDragMove(event) {
   }
 
   const { element, mode } = popupDragState;
-  const pointerX = mode === POPUP_PIN_MODE_VIEWPORT ? event.clientX : event.pageX;
-  const pointerY = mode === POPUP_PIN_MODE_VIEWPORT ? event.clientY : event.pageY;
+  const isFixed = element.style.position === 'fixed';
+  const pointerX = isFixed ? event.clientX : event.pageX;
+  const pointerY = isFixed ? event.clientY : event.pageY;
   const nextPosition = clampPopupPosition(
     element,
     popupDragState.startLeft + pointerX - popupDragState.startX,
@@ -362,7 +366,7 @@ function startPopupDrag(event) {
 
   const mode = getPopupPinMode(element);
   const rect = element.getBoundingClientRect();
-  const isViewportPosition = mode === POPUP_PIN_MODE_VIEWPORT;
+  const isViewportPosition = mode === POPUP_PIN_MODE_VIEWPORT || element.style.position === 'fixed';
   popupDragState = {
     element,
     mode,
@@ -415,6 +419,11 @@ function showPopup(x, y, content, isLoading = false, isWord = false) {
     popupElement.style.top = `${y - rect.height - 15}px`;
   }
 
+  const occupied = [...popupElements].filter(p => p !== popupElement);
+  if (occupied.some(p => overlapsPopup(popupElement.getBoundingClientRect(), p.getBoundingClientRect()))) {
+    positionRelatedPopup(popupElement, null, occupied);
+  }
+  watchPopupSize(popupElement);
   return popupElement;
 }
 
@@ -440,15 +449,13 @@ function updatePopupError(message) {
 
 function resetPopupView() {
   popupView = null;
-  typewriterGeneration += 1;
   typewriterQueue = Promise.resolve();
 }
 
 function queueTypewriter(element, value, speed = 18) {
   const text = value || '';
-  const generation = typewriterGeneration;
   typewriterQueue = typewriterQueue.then(() => new Promise((resolve) => {
-    if (!element || !element.isConnected || generation !== typewriterGeneration) {
+    if (!element || !element.isConnected) {
       resolve();
       return;
     }
@@ -465,7 +472,7 @@ function queueTypewriter(element, value, speed = 18) {
     element.classList.add('ai-typewriter-active');
 
     function typeNext() {
-      if (!element.isConnected || generation !== typewriterGeneration) {
+      if (!element.isConnected) {
         resolve();
         return;
       }
@@ -520,8 +527,7 @@ function createSpeakerButton(word) {
   return btn;
 }
 
-function createPinButton() {
-  const owner = popupElement;
+function createPinButton(owner = popupElement) {
   const btn = document.createElement('button');
   btn.className = 'ai-pin-btn';
   btn.type = 'button';
@@ -567,6 +573,10 @@ function renderWordPopup(data, word) {
     updatePopup(popupView.card);
   }
 
+  updateWordPopupView(data, word, popupView);
+}
+
+function updateWordPopupView(data, word, popupView) {
   if (data.meaning && data.meaning !== popupView.meaning) {
     popupView.meaning = data.meaning;
     popupView.meaningElement.classList.remove('ai-stream-pending');
@@ -589,8 +599,14 @@ function renderWordPopup(data, word) {
     popupView.componentList.replaceChildren();
 
     components.forEach((component) => {
-      const chip = document.createElement('span');
+      const chip = document.createElement('button');
+      chip.type = 'button';
       chip.className = 'ai-component-chip';
+      chip.setAttribute('aria-label', `查看 ${component.text} 的同根词`);
+      chip.addEventListener('click', (event) => {
+        event.stopPropagation();
+        appendRelatedWords(popupView.card, word, component);
+      });
       const details = [component.type, component.meaning].filter(Boolean).join('：');
       if (details) chip.title = details;
       popupView.componentList.appendChild(chip);
@@ -629,7 +645,7 @@ function renderSentencePopup(data) {
   }
 }
 
-function createWordPopupView(word) {
+function createWordPopupView(word, owner = popupElement) {
   const card = document.createElement('div');
   card.className = 'ai-word-card';
 
@@ -643,7 +659,7 @@ function createWordPopupView(word) {
   wordIdentity.appendChild(wordSpan);
   wordIdentity.appendChild(createSpeakerButton(word));
   wordHeader.appendChild(wordIdentity);
-  wordHeader.appendChild(createPinButton());
+  wordHeader.appendChild(createPinButton(owner));
   card.appendChild(wordHeader);
 
   const meaningElement = document.createElement('div');
@@ -690,4 +706,196 @@ function createWordPopupView(word) {
     componentList,
     compositionElement,
   };
+}
+
+// Exploration windows have independent lifetimes, positions and pin buttons.
+function overlapsPopup(a, b, gap = 12) {
+  return a.left < b.right + gap && a.right + gap > b.left &&
+    a.top < b.bottom + gap && a.bottom + gap > b.top;
+}
+
+function findPopupSpace(size, anchor, occupied, viewport) {
+  const gap = 12;
+  const maxLeft = Math.max(gap, viewport.width - size.width - gap);
+  const rectAt = (left, top) => ({ left, top, right: left + size.width, bottom: top + size.height });
+  const candidates = [
+    { left: anchor.right + gap, top: Math.max(gap, anchor.top), placement: 'right' },
+    { left: Math.max(gap, Math.min(anchor.left, maxLeft)), top: Math.max(gap, anchor.bottom + gap), placement: 'below' },
+  ];
+  const xs = [...new Set([gap, ...occupied.map(r => r.right + gap)])].sort((a, b) => a - b);
+  const ys = [...new Set([gap, ...occupied.map(r => r.bottom + gap)])].sort((a, b) => a - b);
+  for (const top of ys) for (const left of xs) candidates.push({left, top, placement: 'free'});
+  const available = candidate => candidate.left >= gap && candidate.left <= maxLeft &&
+    !occupied.some(r => overlapsPopup(rectAt(candidate.left, candidate.top), r));
+  // Keep new windows on screen when possible; otherwise extend downward on the page.
+  const visible = candidates.find(c => c.top + size.height <= viewport.height - gap && available(c));
+  if (visible) return visible;
+  const below = candidates[1];
+  if (available(below)) return below;
+  return { left: Math.max(gap, Math.min(anchor.left, maxLeft)),
+    top: Math.max(gap, ...occupied.map(r => r.bottom + gap)), placement: 'below' };
+}
+
+function positionRelatedPopup(owner, anchor, obstacles = [...popupElements].filter(p => p !== owner)) {
+  const rect = anchor?.getBoundingClientRect() || owner.getBoundingClientRect();
+  const size = owner.getBoundingClientRect();
+  const next = findPopupSpace(size, rect, obstacles.map(p => p.getBoundingClientRect()),
+    { width: window.innerWidth, height: window.innerHeight });
+  const fixed = owner.style.position === 'fixed';
+  owner.style.left = `${next.left + (fixed ? 0 : window.scrollX)}px`;
+  owner.style.top = `${next.top + (fixed ? 0 : window.scrollY)}px`;
+  owner.dataset.placement = next.placement;
+}
+
+function watchPopupSize(owner) {
+  if (typeof ResizeObserver === 'undefined') return;
+  const observer = new ResizeObserver(() => {
+    const earlier = [];
+    // Keep earlier cards in place, move only later cards that now collide.
+    for (const popup of popupElements) {
+      if (earlier.some(p => overlapsPopup(popup.getBoundingClientRect(), p.getBoundingClientRect()))) {
+        positionRelatedPopup(popup, popup._placementAnchor, earlier);
+      }
+      earlier.push(popup);
+    }
+  });
+  observer.observe(owner);
+  owner._sizeObserver = observer;
+}
+
+function createExplorationPopup(card, title, isWord = false) {
+  const anchor = card.closest('.ai-translator-popup');
+  if (!anchor || !popupElements.has(anchor)) return null;
+  const owner = document.createElement('div');
+  owner.className = 'ai-translator-popup ai-exploration-popup';
+  owner.dataset.pinMode = POPUP_PIN_MODE_NONE;
+  const header = document.createElement('div');
+  header.className = 'ai-word-header';
+  const heading = document.createElement('div');
+  heading.className = 'ai-trail-heading';
+  heading.textContent = title;
+  const controls = document.createElement('div');
+  controls.className = 'ai-popup-controls';
+  controls.appendChild(createPinButton(owner));
+  const close = document.createElement('button');
+  close.type = 'button';
+  close.className = 'ai-close-btn';
+  close.textContent = '×';
+  close.title = '关闭此窗口';
+  close.setAttribute('aria-label', '关闭此窗口');
+  close.addEventListener('click', (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    removePopup(owner, true);
+  });
+  controls.appendChild(close);
+  header.append(heading, controls);
+  const body = document.createElement('div');
+  body.className = 'ai-exploration-body';
+  owner.append(header, body);
+  popupElements.add(owner);
+  document.body.appendChild(owner);
+  owner.addEventListener('mousedown', startPopupDrag);
+  owner._placementAnchor = anchor;
+  positionRelatedPopup(owner, anchor);
+  watchPopupSize(owner);
+  return { owner, section: owner, body };
+}
+
+function requestTrailData(trail, request, onData) {
+  const { owner, body } = trail;
+  const run = () => {
+    body.replaceChildren();
+    const loading = document.createElement('div');
+    loading.className = 'ai-translator-loading';
+    loading.textContent = '正在查询…';
+    body.appendChild(loading);
+    let port;
+    let finished = false;
+    const finish = () => {
+      finished = true;
+      owner._relatedPorts?.delete(port);
+      disconnectTranslationPort(port);
+    };
+    const fail = (message) => {
+      if (!body.isConnected) { finish(); return; }
+      body.replaceChildren();
+      const error = document.createElement('div');
+      error.className = 'ai-error';
+      error.textContent = message;
+      const retry = document.createElement('button');
+      retry.className = 'ai-related-word';
+      retry.type = 'button';
+      retry.textContent = '重试';
+      retry.addEventListener('click', run);
+      body.append(error, retry);
+      finish();
+    };
+    try {
+      port = chrome.runtime.connect({ name: 'translation-stream' });
+      owner._relatedPorts ||= new Set();
+      owner._relatedPorts.add(port);
+      port.onMessage.addListener((message) => {
+        if (finished || !body.isConnected) return;
+        if (message.type === 'error') { fail(message.error || '查询失败，请重试。'); return; }
+        if (message.type !== 'result') return;
+        try {
+          body.replaceChildren();
+          onData(message.data, body, owner);
+          finish();
+        } catch (error) { fail(error.message || '返回格式异常，请重试。'); }
+      });
+      port.onDisconnect.addListener(() => {
+        const error = chrome.runtime.lastError;
+        if (!finished) fail(error?.message || '连接已中断，请重试。');
+      });
+      port.postMessage(request);
+    } catch (error) { fail('扩展连接已失效，请刷新页面后重试。'); }
+  };
+  run();
+}
+
+function appendRelatedWords(card, word, component) {
+  const trail = createExplorationPopup(card, `${word} › ${component.text} · 同根词`);
+  if (!trail) return;
+  requestTrailData(trail, { action: 'relatedWords', word, component }, (data, body) => {
+    if (!Array.isArray(data?.words) || !data.words.length) throw new Error('未找到可靠的同根词。');
+    const list = document.createElement('div');
+    list.className = 'ai-related-list';
+    data.words.forEach((item) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'ai-related-word';
+      const name = document.createElement('strong');
+      name.textContent = item.word;
+      const meaning = document.createElement('span');
+      meaning.textContent = item.meaning;
+      button.append(name, meaning);
+      button.title = item.relation;
+      button.addEventListener('click', (event) => {
+        event.stopPropagation();
+        appendTrailWord(trail.section, item.word);
+      });
+      list.appendChild(button);
+    });
+    body.appendChild(list);
+    if (data.words.length < 5) {
+      const note = document.createElement('div');
+      note.className = 'ai-trail-heading';
+      note.textContent = `仅找到 ${data.words.length} 个可靠的同根词。`;
+      body.appendChild(note);
+    }
+  });
+}
+
+function appendTrailWord(card, word) {
+  const trail = createExplorationPopup(card, `单词详解 · ${word}`, true);
+  if (!trail) return;
+  requestTrailData(trail, { action: 'translate', text: word, isWord: true }, (data, body, owner) => {
+    if (data?.type !== 'word') throw new Error('单词讲解格式异常，请重试。');
+    const view = createWordPopupView(word, owner);
+    view.card.querySelector('.ai-pin-btn')?.remove();
+    body.appendChild(view.card);
+    updateWordPopupView(data, word, view);
+  });
 }

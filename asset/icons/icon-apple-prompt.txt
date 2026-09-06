@@ -1,0 +1,7 @@
+Generated with built-in image_gen.
+Use case: logo-brand
+Asset type: production Chrome extension icon, square 1024x1024 PNG.
+Primary request: Design a new Apple macOS / iOS inspired icon for an AI word-root translation assistant.
+Subject: two bold overlapping rounded translation cards, front card with a perfectly legible capital "A", rear card with a perfectly legible Chinese character "文". A very subtle branching root motif integrated into the foot of the A suggests etymology; keep it extremely simple.
+Style: premium Apple-like app icon, restrained dimensional frosted glass and porcelain, beautifully smooth rounded squircle tile, soft studio highlight, gentle inset depth. Cool blue accent reflecting the extension's blue interface, white lettering, subtle cyan to deep blue gradient.
+Composition: a single centered icon filling 94% of the canvas, straight-on view, thick simple silhouettes readable at 16px; actual transparent background outside the rounded tile. No surrounding scene, no mockup, no extra icons, no caption, no Apple logo, no watermark. Crisp polished edges.

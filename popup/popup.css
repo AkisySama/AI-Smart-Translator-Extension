@@ -170,3 +170,26 @@ input[type="password"]:focus {
   line-height: 1.45;
   text-align: center;
 }
+
+.model-picker { display: flex; gap: 6px; }
+.model-picker select {
+  flex: 1;
+  min-width: 0;
+  width: 100%;
+  padding: 8px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #fff;
+  color: #0f172a;
+}
+.model-picker button {
+  flex-shrink: 0;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #f8fafc;
+  color: #007aff;
+  cursor: pointer;
+}
+.model-picker :focus-visible { outline: 2px solid #007aff; outline-offset: 2px; }
+.model-picker :disabled { opacity: 0.6; cursor: default; }
+.model-status { font-size: 11px; line-height: 1.5; color: #64748b; overflow-wrap: anywhere; }

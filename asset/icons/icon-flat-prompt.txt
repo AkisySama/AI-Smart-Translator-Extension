@@ -1,0 +1,6 @@
+Generated using built-in image_gen, followed by background cleanup using image_gen.
+Use case: logo-brand
+Asset type: final flat Chrome extension icon, square PNG.
+Design a fresh contemporary minimalist flat icon for a word translation extension. A solid vivid cobalt blue rounded-square tile with a large bold white geometric capital A and a smaller white Chinese 文 arranged as a single balanced compact translation symbol. Two glyphs only, beautifully spaced, visually strong and readable at tiny toolbar sizes. Strictly 2D flat vector aesthetic, uniform solid fills, crisp smooth contours. Straight-on orthographic view. Tile nearly fills square canvas with narrow transparent outside corners. Youthful, restrained, confident modern Apple-style graphic simplicity.
+Absolutely no gradients, no glass, no gloss, no bevels, no 3D, no shadows, no lighting effects, no textures, no overlapping cards, no roots or fine decorative lines, no borders, no sparkles, no mockup scene, no Apple logo, no captions. Only cobalt blue and white plus actual transparent outer corners.
+Final edit: Preserve glyph layout; make the tile uniformly opaque cobalt blue with white glyphs and white outer corners. Remove all gradients, dark patches, transparency and lighting.

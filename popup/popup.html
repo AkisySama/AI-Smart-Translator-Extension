@@ -58,7 +58,15 @@
                 </div>
 
                 <div class="form-group">
-                    <label for="modelName">模型名称</label>
+                    <label for="modelSelect">可用模型</label>
+                    <div class="model-picker">
+                        <select id="modelSelect" aria-describedby="modelStatus" disabled>
+                            <option value="">请先填写 API 信息</option>
+                        </select>
+                        <button type="button" id="refreshModels">刷新</button>
+                    </div>
+                    <div id="modelStatus" class="model-status" role="status" aria-live="polite"></div>
+                    <label for="modelName">模型名称（可手动输入）</label>
                     <input
                         type="text"
                         id="modelName"
