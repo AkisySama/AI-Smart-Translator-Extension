@@ -9,6 +9,7 @@
 - **浮动触发图标** — 选中文本后出现图标，点击确认后才调用 API，避免误触发
 - **智能过滤** — 自动忽略纯数字、中文文本、URL 等非英文内容
 - **翻译缓存** — 内存级缓存，重复查询同一词汇秒出结果
+- **Thinking Orb 等待动效** — 等待时显示胶囊型 `composing` 点阵球与 `Thinking…` 高光文字，底色和透明度与翻译卡片一致，返回结果后显示翻译卡片，支持减少动态效果偏好，后台标签页自动暂停
 - **弹窗自适应** — 弹窗自动调整位置，避免超出屏幕边界
 - **多模型兼容** — 支持所有 OpenAI API 兼容接口（OpenAI、DeepSeek、通义千问等）
 
@@ -44,9 +45,11 @@
 ├── manifest.json           # 扩展配置
 ├── background.js           # Service Worker，处理翻译请求
 ├── lib/
-│   └── ai-providers.js     # AI API 调用封装
+│   ├── ai-providers.js     # AI API 调用封装
+│   └── thinking-orbs/      # 本地打包的 MIT Canvas 动效引擎及许可证
 ├── content/
 │   ├── content.js          # 页面注入脚本，选中文本与弹窗
+│   ├── thinking-orb.js     # Thinking Orb 的动画与清理逻辑
 │   └── content.css         # 弹窗样式
 ├── popup/
 │   ├── popup.html          # 设置面板

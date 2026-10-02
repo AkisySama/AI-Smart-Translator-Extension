@@ -10,6 +10,7 @@ let popupDragState = null;
 const POPUP_PIN_MODE_NONE = 'none';
 const POPUP_PIN_MODE_VIEWPORT = 'viewport';
 const POPUP_PIN_MODE_PAGE = 'page';
+const THINKING_ORB_STATE = 'composing';
 
 // Variables to store current selection info for delayed translation lookup
 let currentSelectionText = '';
@@ -231,6 +232,7 @@ function removePopup(target = popupElement, force = false) {
   stopPopupDrag(target);
   popupElements.delete(target);
   target._sizeObserver?.disconnect();
+  stopLoadingIndicator(target);
   target._relatedPorts?.forEach(disconnectTranslationPort);
   target.remove();
 
@@ -382,6 +384,41 @@ function startPopupDrag(event) {
   document.addEventListener('mouseup', stopPopupDrag);
 }
 
+function stopLoadingIndicator(owner) {
+  owner?._stopThinkingOrb?.();
+  if (owner) {
+    owner._stopThinkingOrb = null;
+    owner.classList.remove('ai-translator-popup--loading');
+  }
+}
+
+function createLoadingIndicator(owner, label = 'Thinking…', size = 64) {
+  stopLoadingIndicator(owner);
+  owner.classList.add('ai-translator-popup--loading');
+  const loading = document.createElement('div');
+  loading.className = size === 20
+    ? 'ai-translator-loading ai-translator-loading--compact'
+    : 'ai-translator-loading';
+  loading.setAttribute('role', 'status');
+  loading.setAttribute('aria-live', 'polite');
+  loading.setAttribute('aria-label', label);
+  const canvas = document.createElement('canvas');
+  canvas.className = 'ai-thinking-orb';
+  canvas.setAttribute('aria-hidden', 'true');
+  loading.appendChild(canvas);
+  const text = document.createElement('span');
+  text.className = 'ai-thinking-label';
+  text.textContent = label;
+  text.dataset.text = label;
+  loading.appendChild(text);
+  if (typeof AIThinkingOrb !== 'undefined') {
+    owner._stopThinkingOrb = AIThinkingOrb.mount(canvas, {
+      state: THINKING_ORB_STATE, size, displaySize: size === 64 ? 36 : size,
+    });
+  }
+  return loading;
+}
+
 function showPopup(x, y, content, isLoading = false, isWord = false) {
   removeUnpinnedPopups();
   resetPopupView();
@@ -397,10 +434,7 @@ function showPopup(x, y, content, isLoading = false, isWord = false) {
   popupElement.style.top = `${y + 15}px`;
 
   if (isLoading) {
-    popupElement.innerHTML = `
-      <div class="ai-translator-loading">
-        <span>AI is thinking...</span>
-      </div>`;
+    popupElement.appendChild(createLoadingIndicator(popupElement));
   } else {
     popupElement.innerHTML = content;
   }
@@ -429,6 +463,7 @@ function showPopup(x, y, content, isLoading = false, isWord = false) {
 
 function updatePopup(content) {
   if (popupElement) {
+    stopLoadingIndicator(popupElement);
     popupElement.classList.remove('ai-translator-popup--loading');
     popupElement.innerHTML = '';
     popupElement.appendChild(content);
@@ -437,6 +472,7 @@ function updatePopup(content) {
 
 function updatePopupError(message) {
   if (popupElement) {
+    stopLoadingIndicator(popupElement);
     resetPopupView();
     popupElement.classList.remove('ai-translator-popup--loading');
     popupElement.innerHTML = '';
@@ -806,14 +842,12 @@ function requestTrailData(trail, request, onData) {
   const { owner, body } = trail;
   const run = () => {
     body.replaceChildren();
-    const loading = document.createElement('div');
-    loading.className = 'ai-translator-loading';
-    loading.textContent = '正在查询…';
-    body.appendChild(loading);
+    body.appendChild(createLoadingIndicator(owner, 'Thinking…', 20));
     let port;
     let finished = false;
     const finish = () => {
       finished = true;
+      stopLoadingIndicator(owner);
       owner._relatedPorts?.delete(port);
       disconnectTranslationPort(port);
     };
