@@ -132,11 +132,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // Update button active states
     providerBtns.querySelectorAll(".provider-btn").forEach((btn) => {
-      if (btn.dataset.provider === provider) {
-        btn.classList.add("active");
-      } else {
-        btn.classList.remove("active");
-      }
+      btn.classList.toggle("active", btn.dataset.provider === provider);
     });
 
     // Load fields for the new provider

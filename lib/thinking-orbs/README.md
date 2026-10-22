@@ -7,16 +7,16 @@ Vendored from the official `thinking-orbs@0.3.2` npm package (MIT, Jakub Antalik
 - Upstream commit: `5e7afad5fc8f3661e0bf0b4cd3f87de482ffcf16`
 - Package integrity (SHA-512): `QZFeBaPEzqhjiZoXy961EvDgaXk2WgXacF3Rbz+Sj5IfzDzBvTC86vdREUHniBffYibJFKSwbfllxLUdI/Xv6g==`
 
-`engine.js` contains the unchanged `dist/index-Rl6_4MTr.cjs` engine inside an
-IIFE with a local `exports` object, exposed as `AIThinkingOrbEngine`. No React,
-remote scripts, runtime downloads, or build step are required. Keep `LICENSE`
-with this file when redistributing the extension.
+`engine.js` is a local composing-only subset of `dist/index-Rl6_4MTr.cjs`,
+exposed as `AIThinkingOrbEngine`. Unused animation modes, line painting, general
+scaling utilities, and exports have been removed. The composing geometry and
+upstream presets for sizes `20`, `32`, and `64` are preserved. No React, remote
+scripts, runtime downloads, or build step are required. Keep `LICENSE` with this
+file when redistributing the extension.
 
 `content/thinking-orb.js` mounts the engine on a 2D canvas and manages animation,
-visibility, reduced motion, and disposal. The loading state is selected by
-`THINKING_ORB_STATE` in `content/content.js`. Supported states: `working`,
-`searching`, `solving`, `listening`, `connecting`, `weaving`, `composing`,
-`breathing`, and `shaping`. Use the upstream tuned sizes, `64` or `20`.
+visibility, reduced motion, and disposal. The extension uses `composing` at
+sizes `64` and `20`; other animation states are not included in this subset.
 
 The loading capsule's shape follows `sites/home/public/assets/examples.css`,
 with the text shimmer from the official demo. Its surface shares the word card's

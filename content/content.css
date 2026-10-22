@@ -93,7 +93,6 @@
 }
 
 .ai-translator-loading--compact {
-  gap: 8px;
   height: 36px;
   padding: 0 14px 0 8px;
   font-size: 13px;
@@ -124,10 +123,6 @@
 @keyframes ai-thinking-shimmer {
   from { background-position: 100% 0; }
   to { background-position: 0% 0; }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .ai-thinking-label::before { animation: none; }
 }
 
 .ai-translator-loading .ai-thinking-orb {
@@ -300,7 +295,8 @@
     transition: none;
   }
 
-  .ai-typewriter-active::after {
+  .ai-typewriter-active::after,
+  .ai-thinking-label::before {
     animation: none;
   }
 }
@@ -354,7 +350,8 @@
 }
 
 .ai-speaker-btn svg,
-.ai-pin-btn svg {
+.ai-pin-btn svg,
+.ai-translator-trigger-icon svg {
   width: 16px;
   height: 16px;
   pointer-events: none;
@@ -406,12 +403,6 @@
 
 .ai-translator-trigger-icon:active {
   transform: scale(0.95) translateY(0);
-}
-
-.ai-translator-trigger-icon svg {
-  width: 16px;
-  height: 16px;
-  pointer-events: none;
 }
 
 @keyframes ai-pop-in {

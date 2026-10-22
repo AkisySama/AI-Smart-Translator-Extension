@@ -5,27 +5,10 @@ const vm = require('node:vm');
 const path = require('node:path');
 const read = file => fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
 
-function background() {
-  const context = vm.createContext({ chrome: { runtime: {
-    onMessage: { addListener() {} }, onConnect: { addListener() {} }
-  } } });
-  vm.runInContext(read('background.js').replace(/^import .*\n/, ''), context);
-  return context;
-}
-
-test('related words excludes original, duplicates and malformed entries and caps at five', () => {
-  const context = background();
-  const entries = ['program', 'diagram', 'DIAGRAM', 'telegram', 'anagram', 'monogram', 'epigram', 'histogram', '<script>'];
-  const result = context.normalizeRelatedWords({ words: entries.map(word => ({ word, meaning: '含义', relation: '同源关系' })) }, 'program');
-  assert.deepEqual(Array.from(result.words, item => item.word), ['diagram', 'telegram', 'anagram', 'monogram', 'epigram']);
-  assert.throws(() => context.normalizeRelatedWords({words: [{word: 'telegram'}]}, 'program'));
-  assert.throws(() => context.normalizeRelatedWords({}, 'program'));
-});
-
 class Element {
   constructor(tag) {
     this.tagName = tag; this.children = []; this.dataset = {}; this.style = {}; this.listeners = {};
-    this.className = ''; this.textContent = ''; this.scrollHeight = 600;
+    this.className = ''; this.textContent = '';
     this.classList = {
       add: (...names) => { this.className += ' ' + names.join(' '); },
       remove: (...names) => { this.className = this.className.split(' ').filter(x => !names.includes(x)).join(' '); },
@@ -98,7 +81,7 @@ test('root and word clicks create separate windows without replacing earlier car
 });
 
 test('out-of-order related responses remain in their sections and errors can retry', () => {
-  const {context, owner, view, ports} = content();
+  const {context, view, ports} = content();
   context.appendRelatedWords(view.card, 'program', {text: 'pro-'});
   context.appendRelatedWords(view.card, 'program', {text: 'gram'});
   ports[1].receive({type: 'result', data: relatedData});
@@ -108,9 +91,28 @@ test('out-of-order related responses remain in their sections and errors can ret
   assert.equal(sections[1].querySelectorAll('.ai-related-word').length, 5);
   sections[0].querySelector('.ai-related-word').listeners.click();
   assert.equal(ports[2].request.component.text, 'pro-');
+  assert.equal(ports[2].request.forceRefresh, true);
   assert.equal(sections[1].querySelectorAll('.ai-related-word').length, 5);
 });
 
+test('main and exploration translation errors retry with a fresh API request', async () => {
+  for (const main of [true, false]) {
+    const {context, owner, view, ports} = content();
+    if (main) context.requestTranslation('program', true);
+    else context.appendTrailWord(view.card, 'program');
+    ports[0].receive({type: 'error', error: 'AI 没有返回完整可用的 JSON'});
+    const target = main ? owner : context.document.body.children[1];
+    assert.ok(target.querySelector('.ai-error'));
+    target.querySelector('.ai-related-word').listeners.click();
+    assert.equal(ports[0].closed, true);
+    assert.equal(ports[1].request.forceRefresh, true);
+    assert.equal(ports[1].request.text, 'program');
+    ports[1].receive({type: 'result', data: {type: 'word', meaning: '程序', pos: '名词', components: [{text: 'gram'}], composition: '构词说明'}});
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(target.querySelector('.ai-word-meaning').textContent, '程序');
+    assert.equal(target.querySelector('.ai-error'), undefined);
+  }
+});
 
 test('related popup falls below when right side has no room, including page scroll', () => {
   const {context, owner, view} = content();

@@ -126,62 +126,50 @@ function showTriggerIcon(x, y) {
     // Remove the trigger icon since translation is initiated
     removeTriggerIcon();
 
-    if (activeTranslationPort) {
-      disconnectTranslationPort(activeTranslationPort);
-      activeTranslationPort = null;
-    }
-
-    const port = connectTranslationStream();
-    if (!port) return;
-
-    activeTranslationPort = port;
-
-    port.onMessage.addListener((message) => {
-      if (port !== activeTranslationPort) return;
-
-      if (message.type === 'error') {
-        updatePopupError(message.error);
-        activeTranslationPort = null;
-        disconnectTranslationPort(port);
-        return;
-      }
-
-      if (!message.data || typeof message.data !== 'object') {
-        updatePopupError('AI 返回的数据格式异常，请重试。');
-        return;
-      }
-
-      if (message.data.type === 'word') {
-        renderWordPopup(message.data, selectedText);
-      } else if (message.data.type === 'sentence') {
-        renderSentencePopup(message.data);
-      } else {
-        updatePopupError('AI 返回了未知的结果类型，请重试。');
-      }
-
-      if (message.type === 'result') {
-        activeTranslationPort = null;
-        disconnectTranslationPort(port);
-      }
-    });
-
-    port.onDisconnect.addListener(() => {
-      if (port !== activeTranslationPort) return;
-      activeTranslationPort = null;
-      const message = globalThis.chrome?.runtime?.lastError?.message;
-      updatePopupError(message || '流式连接已中断，请重试。');
-    });
-
-    try {
-      port.postMessage({ action: 'translate', text: selectedText, isWord });
-    } catch (error) {
-      if (port !== activeTranslationPort) return;
-      activeTranslationPort = null;
-      updatePopupError('扩展连接已失效，请刷新页面后重试。');
-    }
+    requestTranslation(selectedText, isWord);
   });
 
   document.body.appendChild(triggerIconElement);
+}
+
+function requestTranslation(selectedText, isWord, forceRefresh = false, owner = popupElement) {
+  if (!owner?.isConnected) return;
+  const previousPort = activeTranslationPort;
+  activeTranslationPort = null;
+  disconnectTranslationPort(previousPort);
+  popupElement = owner;
+  resetPopupView();
+  owner.replaceChildren(createLoadingIndicator(owner));
+
+  let port;
+  const finish = () => {
+    activeTranslationPort = null;
+    disconnectTranslationPort(port);
+  };
+  const fail = (message) => {
+    finish();
+    updatePopupError(message, () => requestTranslation(selectedText, isWord, true, owner));
+  };
+  port = connectTranslationStream(fail);
+  if (!port) return;
+  activeTranslationPort = port;
+  port.onMessage.addListener((message) => {
+    if (port !== activeTranslationPort) return;
+    if (message.type === 'error') { fail(message.error); return; }
+    try {
+      if (message.data?.type === 'word') renderWordPopup(message.data, selectedText);
+      else if (message.data?.type === 'sentence') renderSentencePopup(message.data);
+      else throw new Error('AI 返回的数据格式异常，请重试。');
+      if (message.type === 'result') finish();
+    } catch (error) { fail(error.message); }
+  });
+  port.onDisconnect.addListener(() => {
+    if (port !== activeTranslationPort) return;
+    fail(globalThis.chrome?.runtime?.lastError?.message || '流式连接已中断，请重试。');
+  });
+  try {
+    port.postMessage({ action: 'translate', text: selectedText, isWord, forceRefresh });
+  } catch (error) { fail('扩展连接已失效，请刷新页面后重试。'); }
 }
 
 function removeTriggerIcon() {
@@ -199,17 +187,17 @@ function disconnectTranslationPort(port) {
   }
 }
 
-function connectTranslationStream() {
+function connectTranslationStream(onError = updatePopupError) {
   const runtime = globalThis.chrome?.runtime;
   if (!runtime || typeof runtime.connect !== 'function') {
-    updatePopupError('扩展连接已失效，请刷新页面后重试。');
+    onError('扩展连接已失效，请刷新页面后重试。');
     return null;
   }
 
   try {
     return runtime.connect({ name: 'translation-stream' });
   } catch (error) {
-    updatePopupError('扩展连接已失效，请刷新页面后重试。');
+    onError('扩展连接已失效，请刷新页面后重试。');
     return null;
   }
 }
@@ -243,9 +231,7 @@ function removePopup(target = popupElement, force = false) {
 }
 
 function removeUnpinnedPopups() {
-  [...popupElements].forEach((element) => {
-    if (!isPopupPinned(element)) removePopup(element);
-  });
+  popupElements.forEach((element) => removePopup(element));
 }
 
 function getPinButtonTitle(mode) {
@@ -255,16 +241,13 @@ function getPinButtonTitle(mode) {
 }
 
 function syncPinButton(element) {
-  const pinButtons = element?.querySelectorAll('.ai-pin-btn');
-  if (!pinButtons) return;
-  pinButtons.forEach((pinButton) => {
-
   const mode = getPopupPinMode(element);
   const title = getPinButtonTitle(mode);
-  pinButton.dataset.pinMode = mode;
-  pinButton.setAttribute('aria-pressed', String(mode !== POPUP_PIN_MODE_NONE));
-  pinButton.title = title;
-  pinButton.setAttribute('aria-label', title);
+  element?.querySelectorAll('.ai-pin-btn').forEach((pinButton) => {
+    pinButton.dataset.pinMode = mode;
+    pinButton.setAttribute('aria-pressed', String(mode !== POPUP_PIN_MODE_NONE));
+    pinButton.title = title;
+    pinButton.setAttribute('aria-label', title);
   });
 }
 
@@ -427,7 +410,6 @@ function showPopup(x, y, content, isLoading = false, isWord = false) {
   popupElement.dataset.pinMode = POPUP_PIN_MODE_NONE;
   popupElements.add(popupElement);
   if (isLoading) {
-    popupElement.classList.add('ai-translator-popup--loading');
     popupElement.classList.toggle('ai-translator-popup--word', isWord);
   }
   popupElement.style.left = `${x}px`;
@@ -464,23 +446,28 @@ function showPopup(x, y, content, isLoading = false, isWord = false) {
 function updatePopup(content) {
   if (popupElement) {
     stopLoadingIndicator(popupElement);
-    popupElement.classList.remove('ai-translator-popup--loading');
-    popupElement.innerHTML = '';
-    popupElement.appendChild(content);
+    popupElement.replaceChildren(content);
   }
 }
 
-function updatePopupError(message) {
+function updatePopupError(message, onRetry) {
   if (popupElement) {
-    stopLoadingIndicator(popupElement);
     resetPopupView();
-    popupElement.classList.remove('ai-translator-popup--loading');
-    popupElement.innerHTML = '';
     const div = document.createElement('div');
     div.className = 'ai-error';
     div.textContent = message;
-    popupElement.appendChild(div);
+    updatePopup(div);
+    if (onRetry) popupElement.appendChild(createRetryButton(onRetry));
   }
+}
+
+function createRetryButton(onRetry) {
+  const button = document.createElement('button');
+  button.className = 'ai-related-word';
+  button.type = 'button';
+  button.textContent = '重试';
+  button.addEventListener('click', onRetry);
+  return button;
 }
 
 function resetPopupView() {
@@ -799,7 +786,7 @@ function watchPopupSize(owner) {
   owner._sizeObserver = observer;
 }
 
-function createExplorationPopup(card, title, isWord = false) {
+function createExplorationPopup(card, title) {
   const anchor = card.closest('.ai-translator-popup');
   if (!anchor || !popupElements.has(anchor)) return null;
   const owner = document.createElement('div');
@@ -835,12 +822,12 @@ function createExplorationPopup(card, title, isWord = false) {
   owner._placementAnchor = anchor;
   positionRelatedPopup(owner, anchor);
   watchPopupSize(owner);
-  return { owner, section: owner, body };
+  return { owner, body };
 }
 
 function requestTrailData(trail, request, onData) {
   const { owner, body } = trail;
-  const run = () => {
+  const run = (forceRefresh = false) => {
     body.replaceChildren();
     body.appendChild(createLoadingIndicator(owner, 'Thinking…', 20));
     let port;
@@ -857,12 +844,7 @@ function requestTrailData(trail, request, onData) {
       const error = document.createElement('div');
       error.className = 'ai-error';
       error.textContent = message;
-      const retry = document.createElement('button');
-      retry.className = 'ai-related-word';
-      retry.type = 'button';
-      retry.textContent = '重试';
-      retry.addEventListener('click', run);
-      body.append(error, retry);
+      body.append(error, createRetryButton(() => run(true)));
       finish();
     };
     try {
@@ -883,7 +865,7 @@ function requestTrailData(trail, request, onData) {
         const error = chrome.runtime.lastError;
         if (!finished) fail(error?.message || '连接已中断，请重试。');
       });
-      port.postMessage(request);
+      port.postMessage({ ...request, forceRefresh });
     } catch (error) { fail('扩展连接已失效，请刷新页面后重试。'); }
   };
   run();
@@ -908,7 +890,7 @@ function appendRelatedWords(card, word, component) {
       button.title = item.relation;
       button.addEventListener('click', (event) => {
         event.stopPropagation();
-        appendTrailWord(trail.section, item.word);
+        appendTrailWord(trail.owner, item.word);
       });
       list.appendChild(button);
     });
@@ -923,7 +905,7 @@ function appendRelatedWords(card, word, component) {
 }
 
 function appendTrailWord(card, word) {
-  const trail = createExplorationPopup(card, `单词详解 · ${word}`, true);
+  const trail = createExplorationPopup(card, `单词详解 · ${word}`);
   if (!trail) return;
   requestTrailData(trail, { action: 'translate', text: word, isWord: true }, (data, body, owner) => {
     if (data?.type !== 'word') throw new Error('单词讲解格式异常，请重试。');

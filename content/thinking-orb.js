@@ -1,6 +1,6 @@
 // Canvas lifecycle adapter for the official thinking-orbs engine.
 const AIThinkingOrb = (() => {
-  function mount(canvas, { state = 'working', size = 64, displaySize = size } = {}) {
+  function mount(canvas, { state = 'composing', size = 64, displaySize = size } = {}) {
     const ctx = canvas.getContext('2d');
     if (!ctx) {
       canvas.hidden = true;
