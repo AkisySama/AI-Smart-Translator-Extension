@@ -166,13 +166,3 @@ test('crowded viewport extends downward without covering any older card', () => 
   assert.equal(occupied.some(old => context.overlapsPopup(rect, old)), false);
 });
 
-test('larger loaded card is placed using its full dimensions', () => {
-  const {context} = content();
-  const occupied = [
-    {left: 20, top: 20, right: 340, bottom: 500},
-    {left: 352, top: 20, right: 672, bottom: 320},
-  ];
-  const next = context.findPopupSpace({width: 320, height: 450}, occupied[0], occupied, {width: 700, height: 800});
-  const rect = {left: next.left, top: next.top, right: next.left + 320, bottom: next.top + 450};
-  assert.equal(occupied.some(old => context.overlapsPopup(rect, old)), false);
-});

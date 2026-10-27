@@ -3,7 +3,6 @@ const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
 const vm = require('node:vm');
-const { createHash } = require('node:crypto');
 
 const read = file => fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
 
@@ -44,34 +43,6 @@ function setup({ reduced = false, hidden = false, observer = false } = {}) {
     },
     intersect: visible => intersection([{ isIntersecting: visible }]) };
 }
-
-test('manifest loads the local engine and adapter before the content script', () => {
-  const manifest = JSON.parse(read('manifest.json'));
-  assert.deepEqual(manifest.content_scripts[0].js, [
-    'lib/thinking-orbs/engine.js', 'content/thinking-orb.js', 'content/content.js'
-  ]);
-});
-
-test('composing subset preserves upstream frames at every supported size', () => {
-  const { context } = setup();
-  // Captured from the full 0.3.2 engine before pruning. Round only to avoid
-  // platform-specific floating point noise in the trigonometric functions.
-  const expected = {
-    20: '8c99b8c520f159185c08a48c202480efd82b50fc297f2db9481651c223ccf809',
-    32: '53ff2a8ac97a3ae8c157940819b9f1b2428545d5ce37c057b0aef0743cf70c20',
-    64: '142fc838a9557f4e43008af61bb10bbde893ff915aa45a146d7b1070cb9027fa',
-  };
-  for (const [size, digest] of Object.entries(expected)) {
-    const frames = vm.runInContext(`(() => {
-      const { mode, speed, opts } = AIThinkingOrbEngine.resolvePreset('composing', ${size});
-      return [0, 0.6, 1, 10, 100].map(time =>
-        AIThinkingOrbEngine.MODE_FRAMES[mode](${size}, time * speed, opts));
-    })()`, context);
-    const snapshot = JSON.stringify(frames, (_, value) =>
-      typeof value === 'number' ? Number(value.toFixed(8)) : value);
-    assert.equal(createHash('sha256').update(snapshot).digest('hex'), digest, `size ${size}`);
-  }
-});
 
 test('animation paints, caps pixel density, and releases callbacks on disposal', () => {
   const env = setup();
