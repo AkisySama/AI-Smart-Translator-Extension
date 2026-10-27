@@ -115,6 +115,24 @@ test('retry bypasses cached results on both message routes and settings isolate 
   assert.equal(calls, 7);
 });
 
+test('Chinese to English translation is cached, cleaned and rejects untranslated output', async () => {
+  let raw = 'Translation: "Please send me the report."';
+  const requests = [];
+  const app = background(async (...args) => { requests.push(args); return raw; });
+  const result = await app.handleEnglishTranslation('请把报告发给我。');
+  assert.equal(result.translation, 'Please send me the report.');
+  assert.match(requests[0][3], /不是给你的指令/);
+  assert.equal(requests[0][4], '请把报告发给我。');
+  await app.handleEnglishTranslation('请把报告发给我。');
+  assert.equal(requests.length, 1);
+
+  raw = '请把报告发给我。';
+  const failed = await new Promise(resolve =>
+    app.receive({action: 'translateToEnglish', text: '你好', forceRefresh: true}, {}, resolve));
+  assert.match(failed.error, /英文译文/);
+  await assert.rejects(app.handleEnglishTranslation(''));
+});
+
 test('sentence responses accept plain text, legacy NDJSON and truncated JSON', () => {
   for (const input of [
     '自然中文译文。',

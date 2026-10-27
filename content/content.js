@@ -18,6 +18,12 @@ let currentIsWord = false;
 let mouseX = 0;
 let mouseY = 0;
 
+// Chinese selected inside an input field can be replaced with its English translation.
+const TEXT_FIELD_TYPES = new Set(['text', 'search', 'url', 'tel']);
+const MAX_ENGLISH_SOURCE_LENGTH = 4000;
+let pendingEnglishTarget = null;
+let editableSelectionAtMouseDown = null;
+
 document.addEventListener('mouseup', (event) => {
   if (popupDragState) {
     stopPopupDrag();
@@ -36,6 +42,14 @@ document.addEventListener('mouseup', (event) => {
   // Remove existing elements if clicked outside or selection is empty
   removeUnpinnedPopups();
   removeTriggerIcon();
+
+  const editableTarget = getEditableSelection();
+  if (editableTarget && isChineseForEnglish(editableTarget.text)) {
+    if (!isSameEditableTarget(editableTarget, editableSelectionAtMouseDown)) {
+      showEnglishTriggerIcon(editableTarget, event.pageX, event.pageY);
+    }
+    return;
+  }
 
   if (!text) {
     return;
@@ -85,7 +99,8 @@ document.addEventListener('mouseup', (event) => {
 
 document.addEventListener('mousedown', (event) => {
   selectionAtMouseDown = window.getSelection().toString().trim();
-  
+  editableSelectionAtMouseDown = getEditableSelection();
+
   // If clicking outside popup, remove it
   if (!isInsideAnyPopup(event.target)) removeUnpinnedPopups();
   
@@ -95,10 +110,182 @@ document.addEventListener('mousedown', (event) => {
   }
 });
 
-function showTriggerIcon(x, y) {
+// Keyboard selections (Shift+arrows, Cmd/Ctrl+A) never fire mouseup.
+document.addEventListener('keyup', (event) => {
+  if (event.isComposing || event.key === 'Process') return;
+  if (event.key === 'Escape') {
+    removeTriggerIcon();
+    return;
+  }
+
+  const target = getEditableSelection();
+  if (!target || !isChineseForEnglish(target.text)) {
+    if (pendingEnglishTarget) removeTriggerIcon();
+    return;
+  }
+  if (isSameEditableTarget(target, pendingEnglishTarget)) return;
+
+  removeTriggerIcon();
+  const anchor = getEditableAnchor(target);
+  showEnglishTriggerIcon(target, anchor.x, anchor.y);
+});
+
+function getFocusedElement() {
+  let active = document.activeElement;
+  while (active?.shadowRoot?.activeElement) active = active.shadowRoot.activeElement;
+  return active;
+}
+
+function isTextField(element) {
+  if (!element || element.disabled || element.readOnly) return false;
+  if (element.tagName === 'TEXTAREA') return true;
+  return element.tagName === 'INPUT' && TEXT_FIELD_TYPES.has(element.type);
+}
+
+function getEditableSelection() {
+  const element = getFocusedElement();
+  if (isTextField(element)) {
+    const { selectionStart: start, selectionEnd: end } = element;
+    if (start == null || start === end) return null;
+    return { kind: 'field', element, start, end, text: element.value.slice(start, end) };
+  }
+
+  if (!element?.isContentEditable) return null;
+  const selection = window.getSelection();
+  if (!selection.rangeCount || selection.isCollapsed) return null;
+  const range = selection.getRangeAt(0);
+  if (!element.contains(range.commonAncestorContainer)) return null;
+  return { kind: 'rich', element, range: range.cloneRange(), text: selection.toString() };
+}
+
+function isChineseForEnglish(text) {
+  return text.length <= MAX_ENGLISH_SOURCE_LENGTH && /\p{Script=Han}/u.test(text);
+}
+
+function isSameEditableTarget(a, b) {
+  return !!a && !!b && a.element === b.element && a.text === b.text &&
+    a.start === b.start && a.end === b.end;
+}
+
+function getEditableAnchor(target) {
+  let rect = target.kind === 'rich' ? target.range.getBoundingClientRect() : null;
+  if (!rect || (!rect.width && !rect.height)) {
+    // Text field selections have no geometry; anchor below the field's right edge.
+    const fieldRect = target.element.getBoundingClientRect();
+    rect = { right: Math.max(fieldRect.left, fieldRect.right - 44), bottom: fieldRect.bottom - 4 };
+  }
+  return { x: rect.right + window.scrollX, y: rect.bottom + window.scrollY };
+}
+
+function showEnglishTriggerIcon(target, x, y) {
+  showTriggerIcon(x, y, () => requestEnglishTranslation(target, x, y), {
+    className: 'ai-translator-trigger-icon--to-english',
+    title: '翻译成英文并替换',
+    keepFocus: true,
+  });
+  pendingEnglishTarget = target;
+}
+
+function requestEnglishTranslation(target, x, y, forceRefresh = false) {
+  const owner = showPopup(x, y, '', true);
+  const fail = (message) => {
+    if (!owner.isConnected) return;
+    popupElement = owner;
+    updatePopupError(message, () => requestEnglishTranslation(target, x, y, true));
+  };
+
+  const runtime = globalThis.chrome?.runtime;
+  try {
+    runtime.sendMessage({ action: 'translateToEnglish', text: target.text.trim(), forceRefresh }, (response) => {
+      const lastError = globalThis.chrome?.runtime?.lastError;
+      if (lastError || !response) { fail(lastError?.message || '扩展连接已中断，请重试。'); return; }
+      if (response.error) { fail(response.error); return; }
+      const translation = response.data?.translation;
+      if (!translation) { fail('AI 没有返回可用的译文，请重试。'); return; }
+
+      if (replaceEditableSelection(target, keepOuterWhitespace(target.text, translation))) {
+        removePopup(owner, true);
+      } else if (owner.isConnected) {
+        // The user edited the field meanwhile; show the translation instead of overwriting.
+        popupElement = owner;
+        resetPopupView();
+        renderSentencePopup({ translation });
+      }
+    });
+  } catch (error) {
+    fail('扩展连接已失效，请刷新页面后重试。');
+  }
+}
+
+function keepOuterWhitespace(source, translation) {
+  return source.match(/^\s*/)[0] + translation.trim() + source.match(/\s*$/)[0];
+}
+
+function isEditableTargetIntact(target) {
+  const { element } = target;
+  if (!element.isConnected) return false;
+  if (target.kind === 'field') {
+    return element.value.slice(target.start, target.end) === target.text;
+  }
+  return element.contains(target.range.commonAncestorContainer) &&
+    target.range.toString() === target.text;
+}
+
+function replaceEditableSelection(target, replacement) {
+  if (!isEditableTargetIntact(target)) return false;
+
+  const { element } = target;
+  element.focus({ preventScroll: true });
+  const selection = window.getSelection();
+  if (target.kind === 'field') {
+    element.setSelectionRange(target.start, target.end);
+  } else {
+    selection.removeAllRanges();
+    selection.addRange(target.range);
+  }
+
+  // insertText keeps the native undo stack and notifies editor frameworks.
+  let inserted = false;
+  try {
+    inserted = document.execCommand('insertText', false, replacement);
+  } catch (error) {
+    // Fall back to a direct edit below.
+  }
+  if (inserted) return true;
+
+  if (target.kind === 'field') {
+    element.setRangeText(replacement, target.start, target.end, 'end');
+  } else {
+    target.range.deleteContents();
+    const node = document.createTextNode(replacement);
+    target.range.insertNode(node);
+    selection.removeAllRanges();
+    selection.collapse(node, node.length);
+  }
+  element.dispatchEvent(new InputEvent('input', {
+    bubbles: true, inputType: 'insertReplacementText', data: replacement,
+  }));
+  return true;
+}
+
+function translateCurrentSelection() {
+  const selectedText = currentSelectionText;
+  const isWord = currentIsWord;
+
+  // Create loading popup at the saved position
+  showPopup(mouseX, mouseY, "", true, isWord);
+  requestTranslation(selectedText, isWord);
+}
+
+function showTriggerIcon(x, y, onActivate = translateCurrentSelection, options = {}) {
   triggerIconElement = document.createElement('div');
   triggerIconElement.className = 'ai-translator-trigger-icon';
-  
+  if (options.className) triggerIconElement.classList.add(options.className);
+  if (options.title) {
+    triggerIconElement.title = options.title;
+    triggerIconElement.setAttribute('aria-label', options.title);
+  }
+
   // Lucide Languages Icon SVG
   triggerIconElement.innerHTML = `
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -115,18 +302,16 @@ function showTriggerIcon(x, y) {
   triggerIconElement.style.left = `${x + 10}px`;
   triggerIconElement.style.top = `${y + 10}px`;
 
+  if (options.keepFocus) {
+    // Keep focus and the selection in the field the user is typing in.
+    triggerIconElement.addEventListener('mousedown', (e) => e.preventDefault());
+  }
+
   triggerIconElement.addEventListener('click', (e) => {
     e.stopPropagation();
-    const selectedText = currentSelectionText;
-    const isWord = currentIsWord;
-    
-    // Create loading popup at the saved position
-    showPopup(mouseX, mouseY, "", true, isWord);
-    
     // Remove the trigger icon since translation is initiated
     removeTriggerIcon();
-
-    requestTranslation(selectedText, isWord);
+    onActivate();
   });
 
   document.body.appendChild(triggerIconElement);
@@ -177,6 +362,7 @@ function removeTriggerIcon() {
     triggerIconElement.remove();
     triggerIconElement = null;
   }
+  pendingEnglishTarget = null;
 }
 
 function disconnectTranslationPort(port) {
